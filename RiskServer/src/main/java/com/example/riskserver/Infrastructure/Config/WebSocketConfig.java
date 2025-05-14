@@ -1,32 +1,36 @@
 package com.example.riskserver.Infrastructure.Config;
 
+import com.example.riskserver.Infrastructure.GameManager;
+import com.example.riskserver.Infrastructure.sockets.RiskWebSocket;
+import com.example.riskserver.aplication.service.LoginService.LoginService;
+import com.example.riskserver.aplication.service.SalaService.SalaService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.simp.SimpMessageSendingOperations;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
-import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+
+import java.net.InetSocketAddress;
 
 @Configuration
-@EnableWebSocketMessageBroker
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+public class WebSocketConfig {
 
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Definir el endpoint para STOMP
-        registry.addEndpoint("/ws-risk").setAllowedOrigins("*").withSockJS();
+    @Value("${websocket.host:localhost}") // Valor por defecto 'localhost'
+    private String host;
+
+    @Value("${websocket.port:29563}")
+    private int port;
+
+    @Bean
+    public InetSocketAddress webSocketAddress() {
+        return new InetSocketAddress(host, port);
     }
 
-    @Override
-    public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Configurar un broker de mensajes
-        registry.enableSimpleBroker("/queue", "/topic");
-        registry.setApplicationDestinationPrefixes("/app");
-    }
-
-    @Override
-    public void configureWebSocketTransport(WebSocketTransportRegistration registry) {
-        // Aquí puedes configurar las propiedades de WebSocket si lo necesitas
+    @Bean
+    public RiskWebSocket riskWebSocket(InetSocketAddress address,
+                                       LoginService loginService,
+                                       SalaService salaService,
+                                       ObjectMapper objectMapper,
+                                       GameManager gameManager) {
+        return new RiskWebSocket(address, loginService,salaService, objectMapper, gameManager);
     }
 }

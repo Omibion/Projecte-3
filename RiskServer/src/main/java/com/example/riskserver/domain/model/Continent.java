@@ -1,0 +1,55 @@
+package com.example.riskserver.domain.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+
+import java.util.List;
+
+@Entity
+public class Continent {
+    @Id
+    private int id;
+    @Column
+    private String nom;
+    @Column
+    private int reforç;
+    @OneToMany(mappedBy = "continent")
+    private List<Pais> paisos;
+
+    public Continent() {
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    public String getNom() {
+        return nom;
+    }
+
+    public void setNom(String nom) {
+        this.nom = nom;
+    }
+
+    public int getReforç() {
+        return reforç;
+    }
+
+    public void setReforç(int reforç) {
+        this.reforç = reforç;
+    }
+
+    public List<Pais> getPaisos() {
+        return paisos;
+    }
+
+    public void setPaisos(List<Pais> paisos) {
+        this.paisos = paisos;
+    }
+}
