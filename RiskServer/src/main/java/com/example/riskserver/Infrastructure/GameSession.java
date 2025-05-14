@@ -1,7 +1,17 @@
 package com.example.riskserver.Infrastructure;
 
+import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
+import com.example.riskserver.Infrastructure.sockets.RiskWebSocket;
+import com.example.riskserver.aplication.service.GameService.GameService;
+import com.example.riskserver.domain.model.JugadorJuego;
+import com.example.riskserver.domain.model.Jugadorp;
+import com.example.riskserver.domain.model.Partida;
 import org.java_websocket.WebSocket;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -12,6 +22,9 @@ public class GameSession {
     private final BlockingQueue<String> inputQueue = new LinkedBlockingQueue<>();
     private volatile boolean gameRunning = false;
     private Thread gameThread;
+    private JugadorpJpaRepository playerRepository;
+    private PartidaJpaRepository partidaRepository;
+
 
     public GameSession(String gameId) {
         this.gameId = gameId;
@@ -39,7 +52,7 @@ public class GameSession {
         }
     }
 
-    public void startGame() {
+    public void startGame(HashMap<String, PlayerSession> jugadores) {
         if (gameRunning) return;
 
         this.gameRunning = true;
@@ -47,6 +60,18 @@ public class GameSession {
         this.gameThread.setName("GameThread-" + gameId);
         this.gameThread.start();
         System.out.println("Partida iniciada en sala: " + gameId);
+        logicaJuego(gameId, jugadores);
+    }
+
+    private void logicaJuego(String gameId, HashMap<String, PlayerSession> jugadores) {
+
+        GameService gameService = new GameService();
+        List<JugadorJuego> jugs=buildJugador(gameId);
+        JugadorJuego actual=new JugadorJuego();
+        jugs= gameService.orden_turno(jugs);
+        actual=jugs.get(0);
+
+
     }
 
     public boolean isStarted() {
@@ -130,5 +155,29 @@ public class GameSession {
 
     public int getPlayerCount() {
         return players.size();
+    }
+
+    private List<JugadorJuego> buildJugador(String gameId) {
+        Partida p=partidaRepository.findById(Integer.parseInt(gameId));
+        List<Jugadorp> jugadores = playerRepository.findByPartida(p);
+        List<JugadorJuego> jugadorJuegos = new ArrayList<>();
+        for(Jugadorp j:jugadores) {
+            JugadorJuego jug = new JugadorJuego();
+            jug.setToken(j.getToken());
+            jug.setId(j.getId());
+            jug.setNombre(j.getNombre());
+            jug.setColor(j.getColors());
+            jug.setPaisesControlados(new HashMap<>());
+            jugadorJuegos.add(jug);
+        }
+       return jugadorJuegos;
+    }
+    public void sendToPlayer(String playerId, String message) {
+        PlayerSession player = players.get(playerId);
+        if (player != null && player.getWebSocket().isOpen()) {
+            player.send(message);
+        } else {
+            System.err.println("No se pudo enviar mensaje al jugador " + playerId + ": conexión cerrada o no existe");
+        }
     }
 }

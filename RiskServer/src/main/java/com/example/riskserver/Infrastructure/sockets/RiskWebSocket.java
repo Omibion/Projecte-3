@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -147,7 +148,7 @@ public class RiskWebSocket extends WebSocketServer {
         broadcastToSala(rq.getSala().getId(), bc);
 
         // Verifica si todos los jugadores están listos
-        if (rq.getSala().getJugadores().size() > 2) {
+        if (rq.getSala().getJugadores().size() > 0) {
             int c = 0;
             for (Jugadorp j : rq.getSala().getJugadores()) {
                 if (j.isEstado()) {
@@ -159,9 +160,17 @@ public class RiskWebSocket extends WebSocketServer {
             if (c == rq.getSala().getJugadores().size()) {
                 System.out.println("Todos los jugadores están listos. Iniciando partida...");
                 gameManager.createGame(rq.getSala().getId()+"");
-                // Lanza un nuevo hilo para manejar la partida
+                EmpezarBC bca  = new EmpezarBC();
+                bca.setResponse("empezarBC");
+                bca.setCode(200);
+                broadcastToSala(rq.getSala().getId(), bca);
+                HashMap <String, PlayerSession> jugadoresASala= new HashMap<>();
+                for(Jugadorp j : rq.getSala().getJugadores()) {
+                    PlayerSession p = tokenToSession.get(j.getToken());
+                    jugadoresASala.put(j.getToken(), p);
+                }
                 new Thread(() -> {
-                    gameManager.startGame(rq.getSala().getId()+"");
+                    gameManager.startGame(rq.getSala().getId()+"", jugadoresASala);
                 }).start();
             }
         }
@@ -197,7 +206,7 @@ public class RiskWebSocket extends WebSocketServer {
             return;
         }
 
-        sala = salaService.addUserToSala(rq.getSala(), rq.getUser());
+        sala = salaService.addUserToSala(rq.getSala(), rq.getUser(), rq.getToken());
 
         JoinSalaRS rs = new JoinSalaRS();
         rs.setResponse("joinSalaRS");
@@ -218,7 +227,7 @@ public class RiskWebSocket extends WebSocketServer {
             Sala sala = new Sala();
             sala.setNombre(rq.getName());
             sala.setMaxPlayers(3);
-            Sala nuevaSala = salaService.createSala(sala, rq.getUser());
+            Sala nuevaSala = salaService.createSala(sala, rq.getUser(),rq.getToken());
             gameManager.createGame("sala-" + nuevaSala.getId());
 
             // Update token to game mapping
@@ -355,7 +364,7 @@ public class RiskWebSocket extends WebSocketServer {
             for (String token : tokensInSala) {
                 PlayerSession session = tokenToSession.get(token);
                 if (session != null && session.getWebSocket().isOpen()) {
-                    System.out.println(jsonMessage);
+                    System.out.println("Enviado a: "+session.toString()+jsonMessage);
                     session.getWebSocket().send(jsonMessage);
                 }
             }

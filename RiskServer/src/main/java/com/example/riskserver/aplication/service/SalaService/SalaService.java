@@ -43,7 +43,7 @@ public class SalaService {
     }
 
 
-    public Sala createSala(Sala sala, User user) {
+    public Sala createSala(Sala sala, User user, String token) {
         // Crear y persistir partida
         Partida p = new Partida();
         p.setNom(sala.getNombre());
@@ -54,7 +54,7 @@ public class SalaService {
         p.setDate(new Date());
         p.setAdmin_id(user.getId());
         salasJpaRepository.save(p);
-        Jugadorp j = JugadorpBuilder.build(user,p);
+        Jugadorp j = JugadorpBuilder.build(user,p,token);
         jugadorpJpaRepository.save(j);
         List <Jugadorp> jugs = new ArrayList<>();
         jugs.add(j);
@@ -77,14 +77,14 @@ public class SalaService {
         return sala;
     }
 
-    public Sala addUserToSala(int sala, int user) {
+    public Sala addUserToSala(int sala, int user, String token) {
         Partida p = salasJpaRepository.findById(sala);
         List <Jugadorp> jugadorps = salasJpaRepository.findByPartidaId(sala);
         User u = userJpaRepository.findById(user);
         Sala s = SalaBuilder.build(p, jugadorps);
         if(jugadorps.size()<3){
             Partida pa = partidaJpaRepository.findById(sala);
-            Jugadorp j = JugadorpBuilder.build(u,pa);
+            Jugadorp j = JugadorpBuilder.build(u,pa,token);
             jugadorpJpaRepository.save(j);
             s.getJugadores().add(j);
         }

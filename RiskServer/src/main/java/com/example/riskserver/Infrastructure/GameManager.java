@@ -4,6 +4,7 @@ import org.java_websocket.WebSocket;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -83,7 +84,7 @@ public class GameManager {
     /**
      * Inicia una partida si aún no ha comenzado
      */
-    public void startGame(String gameId) {
+    public void startGame(String gameId, HashMap<String, PlayerSession> players) {
         GameSession game = activeGames.get(gameId);
         if (game == null) {
             throw new IllegalArgumentException("No se encontró la sala con ID: " + gameId);
@@ -94,8 +95,10 @@ public class GameManager {
             return;
         }
 
-        game.startGame();
+        game.startGame(players);
         System.out.println("Partida iniciada: " + gameId);
+
+
     }
 
     /**
