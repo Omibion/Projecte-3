@@ -1,22 +1,48 @@
 package com.example.riskserver.Infrastructure;
 
+import com.example.riskserver.Infrastructure.persistence.*;
+import com.example.riskserver.aplication.service.GameService.GameService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.WebSocket;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.WebSocketSession;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class GameManager {
-    private static final GameManager instance = new GameManager();
+    private static GameManager instance;
     private final Map<String, GameSession> activeGames = new ConcurrentHashMap<>();
     private final Map<WebSocket, String> sessionToGameMap = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
+    private final PartidaJpaRepository partidaRepository;
+    private final JugadorpJpaRepository jugadorRepository;
+    private final PaisJPARepository paisRepository;
+    private final ContinentJPARepository continentRepository;
+    private final FronteraJPARepository fronteraRepository;
+
+    // Constructor con inyección de dependencias
+    @Autowired
+    public GameManager( ObjectMapper objectMapper,
+                       PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository,
+                       PaisJPARepository paisRepository, ContinentJPARepository continentRepository,
+                       FronteraJPARepository fronteraRepository) {
+
+        this.objectMapper = objectMapper;
+        this.partidaRepository = partidaRepository;
+        this.jugadorRepository = jugadorRepository;
+        this.paisRepository = paisRepository;
+        this.continentRepository = continentRepository;
+        this.fronteraRepository = fronteraRepository;
+        instance = this;
+    }
 
     // Singleton pattern
     public static GameManager getInstance() {
+        if (instance == null) {
+            throw new IllegalStateException("GameManager no ha sido inicializado. Asegúrate de que Spring lo haya creado.");
+        }
         return instance;
     }
 
@@ -30,7 +56,16 @@ public class GameManager {
             throw new IllegalArgumentException("Game ID already exists: " + gameId);
         }
 
-        GameSession newGame = new GameSession(gameId);
+        GameSession newGame = new GameSession(
+                gameId,
+                objectMapper,
+                partidaRepository,
+                jugadorRepository,
+                paisRepository,
+                continentRepository,
+                fronteraRepository
+        );
+
         activeGames.put(gameId, newGame);
         System.out.println("Nueva sala creada: " + gameId);
         return newGame;
@@ -40,10 +75,8 @@ public class GameManager {
      * Añade un jugador a una sala existente
      */
     public void addPlayerToGame(String gameId, PlayerSession player) {
-        GameSession game = activeGames.get(gameId);
-        if (game == null) {
-            throw new IllegalArgumentException("Game not found: " + gameId);
-        }
+        GameSession game = getGame(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("Game not found: " + gameId));
 
         System.out.println("Añadiendo jugador (" + player.getPlayerId() + ") a sala " + gameId);
         game.addPlayer(player);
@@ -56,12 +89,18 @@ public class GameManager {
     public void handleIncomingMessage(WebSocket session, String payload) {
         String gameId = sessionToGameMap.get(session);
         if (gameId != null) {
-            GameSession game = activeGames.get(gameId);
-            if (game != null) {
-                game.receiveMessage(session, payload);
-            }
+            getGame(gameId).ifPresent(game -> {
+                try {
+                    // Usamos el método getInputQueue() para acceder a la cola
+                    game.getInputQueue().put(payload);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.err.println("Error al poner mensaje en la cola: " + e.getMessage());
+                }
+            });
         }
     }
+
 
     /**
      * Maneja la desconexión de un jugador
@@ -69,15 +108,10 @@ public class GameManager {
     public void handleDisconnection(WebSocket session) {
         String gameId = sessionToGameMap.remove(session);
         if (gameId != null) {
-            GameSession game = activeGames.get(gameId);
-            if (game != null) {
+            getGame(gameId).ifPresent(game -> {
                 game.removePlayer(session);
-
-                // Si la sala queda vacía, opcionalmente limpiarla
-                if (game.getPlayerCount() == 0) {
-                    cleanupEmptyGame(gameId);
-                }
-            }
+                cleanupEmptyGame(gameId);
+            });
         }
     }
 
@@ -85,32 +119,29 @@ public class GameManager {
      * Inicia una partida si aún no ha comenzado
      */
     public void startGame(String gameId, HashMap<String, PlayerSession> players) {
-        GameSession game = activeGames.get(gameId);
-        if (game == null) {
-            throw new IllegalArgumentException("No se encontró la sala con ID: " + gameId);
-        }
+        GameSession game = getGame(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("No se encontró la sala con ID: " + gameId));
 
-        if (game.isStarted()) {
-            System.out.println("La partida ya fue iniciada: " + gameId);
+        // Usamos isGameRunning() para verificar el estado
+        if (game.isGameRunning()) {
+            System.out.println("La partida ya está en curso: " + gameId);
             return;
         }
 
         game.startGame(players);
         System.out.println("Partida iniciada: " + gameId);
-
-
     }
-
     /**
      * Limpia salas vacías
      */
     private void cleanupEmptyGame(String gameId) {
-        GameSession game = activeGames.get(gameId);
-        if (game != null && game.getPlayerCount() == 0) {
-            game.stopGame();
-            activeGames.remove(gameId);
-            System.out.println("Sala vacía eliminada: " + gameId);
-        }
+        getGame(gameId).ifPresent(game -> {
+            if (game.getPlayerCount() == 0) {
+                game.stopGame();
+                activeGames.remove(gameId);
+                System.out.println("Sala vacía eliminada: " + gameId);
+            }
+        });
     }
 
     /**
@@ -127,5 +158,19 @@ public class GameManager {
         activeGames.values().forEach(GameSession::stopGame);
         activeGames.clear();
         sessionToGameMap.clear();
+    }
+
+    /**
+     * Obtiene el ID del juego asociado a una sesión WebSocket
+     */
+    public Optional<String> getGameIdForSession(WebSocket session) {
+        return Optional.ofNullable(sessionToGameMap.get(session));
+    }
+
+    /**
+     * Verifica si un juego existe
+     */
+    public boolean gameExists(String gameId) {
+        return activeGames.containsKey(gameId);
     }
 }
