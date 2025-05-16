@@ -128,6 +128,15 @@ public class RiskWebSocket extends WebSocketServer {
                 case "updateSalaRQ":
                     handleUpdateSala(conn, jsonNode);
                     break;
+                case "reauth":
+                    handleReconnect(conn, jsonNode);
+                    break;
+                case "seleccionarPaisRQ":
+                case "ATACAR":
+                case "FORTIFICAR":
+                case "PASAR_TURNO":
+                    handleGameMessage(conn, jsonNode);
+                    break;
                 default:
                     String token = connectionToToken.get(conn);
                     sendError(conn, "Request type not recognized: " + requestType, token);
@@ -137,6 +146,25 @@ public class RiskWebSocket extends WebSocketServer {
             sendError(conn, "Error processing message: " + e.getMessage(), token);
             e.printStackTrace();
         }
+    }
+
+    private void handleGameMessage(WebSocket conn, JsonNode message) {
+        String token = connectionToToken.get(conn);
+        if (token == null) {
+            sendError(conn, "No autenticado", null);
+            return;
+        }
+
+        System.out.println("Message received from " + token + ": " + message);
+
+        Integer gameId = tokenToGame.get(token);
+        if (gameId == null) {
+            sendError(conn, "No estás en ninguna partida", token);
+            return;
+        }
+
+        // Delegar el mensaje al GameManager/GameSession correspondiente
+        gameManager.handleIncomingMessage(conn,message+"");//habia un .assText pero no iba
     }
 
     private void handleUpdateSala(WebSocket conn, JsonNode jsonNode) throws JsonProcessingException {
@@ -163,17 +191,15 @@ public class RiskWebSocket extends WebSocketServer {
 
                 HashMap<String, PlayerSession> jugadoresASala = new HashMap<>();
                 for(Jugadorp j : rq.getSala().getJugadores()) {
-                    PlayerSession p = tokenToSession.get(j.getToken());
+                    PlayerSession p = tokenToSession.get(rq.getToken());
                     jugadoresASala.put(j.getToken(), p);
+                    gameManager.addPlayerToGame(rq.getSala().getId()+"",p);
                 }
 
-                gameManager.startGame(rq.getSala().getId()+"", jugadoresASala);
+
 
                 // Notificar a los clientes
-                EmpezarBC bca = new EmpezarBC();
-                bca.setResponse("empezarBC");
-                bca.setCode(200);
-                broadcastToSala(rq.getSala().getId(), bca);
+                gameManager.startGame(rq.getSala().getId()+"", jugadoresASala);
             }
         }
     }

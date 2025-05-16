@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface PaisJPARepository extends JpaRepository<Pais, Integer> {
     public List<Pais> findAll();
+    public Pais findByNom(String nom);
 }

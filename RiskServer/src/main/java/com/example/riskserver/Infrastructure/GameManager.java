@@ -24,7 +24,7 @@ public class GameManager {
 
     // Constructor con inyección de dependencias
     @Autowired
-    public GameManager( ObjectMapper objectMapper,
+    public GameManager(ObjectMapper objectMapper,
                        PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository,
                        PaisJPARepository paisRepository, ContinentJPARepository continentRepository,
                        FronteraJPARepository fronteraRepository) {
@@ -52,9 +52,6 @@ public class GameManager {
      * @return GameSession creada
      */
     public GameSession createGame(String gameId) {
-        if (activeGames.containsKey(gameId)) {
-            throw new IllegalArgumentException("Game ID already exists: " + gameId);
-        }
 
         GameSession newGame = new GameSession(
                 gameId,
@@ -64,6 +61,7 @@ public class GameManager {
                 paisRepository,
                 continentRepository,
                 fronteraRepository
+
         );
 
         activeGames.put(gameId, newGame);
@@ -86,18 +84,39 @@ public class GameManager {
     /**
      * Maneja mensajes entrantes y los redirige a la sala adecuada
      */
+    /**
+     * Maneja mensajes entrantes y los redirige al GameThread específico de la partida
+     */
     public void handleIncomingMessage(WebSocket session, String payload) {
+        System.out.println("Incoming Message: " + payload);
         String gameId = sessionToGameMap.get(session);
         if (gameId != null) {
             getGame(gameId).ifPresent(game -> {
-                try {
-                    // Usamos el método getInputQueue() para acceder a la cola
-                    game.getInputQueue().put(payload);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    System.err.println("Error al poner mensaje en la cola: " + e.getMessage());
+                // Verifica que la partida esté en ejecución
+                if (!game.isGameRunning()) {
+                    System.err.println("Partida no iniciada, ignorando mensaje");
+                    return;
+                }
+
+                // Usar offer() con timeout para evitar bloqueos indefinidos
+                boolean success = game.getInputQueue().offer(payload);
+
+                if (!success) {
+                    System.err.println("Cola llena, mensaje descartado para gameId: " + gameId);
+                    // Opcional: Notificar al jugador que el servidor está ocupado
+                    session.send("{\"error\": \"Servidor ocupado, reintenta\"}");
+                } else {
+                    System.out.println("[DEBUG] Mensaje encolado para gameId: " + gameId + payload);
                 }
             });
+        }
+    }
+    public void handlePlayerMessage(String gameId, String token, String message) {
+        GameSession session = activeGames.get(gameId);
+        if (session != null) {
+            session.enqueueMessage(message);
+        } else {
+            System.err.println("No se encontró la sesión de juego para ID: " + gameId);
         }
     }
 

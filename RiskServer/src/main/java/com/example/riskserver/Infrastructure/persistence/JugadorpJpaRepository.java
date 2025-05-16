@@ -10,4 +10,5 @@ import java.util.List;
 @Repository
 public interface JugadorpJpaRepository extends JpaRepository<Jugadorp, Integer> {
     List<Jugadorp> findByPartida(Partida partida);
+    Jugadorp findById(int id);
 }
