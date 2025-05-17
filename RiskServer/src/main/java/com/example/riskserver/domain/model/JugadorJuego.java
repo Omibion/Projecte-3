@@ -1,13 +1,14 @@
 package com.example.riskserver.domain.model;
 
 import java.util.HashMap;
+import java.util.Objects;
 
 public class JugadorJuego {
     long id;
     String nombre;
     int totalTropas;
     int tropasTurno;
-    HashMap<Pais, Integer> paisesControlados;
+    HashMap<String, Integer> paisesControlados;
     String color;
     String token;
 
@@ -46,12 +47,24 @@ public class JugadorJuego {
         this.tropasTurno = tropasTurno;
     }
 
-    public HashMap<Pais, Integer> getPaisesControlados() {
+    public HashMap<String, Integer> getPaisesControlados() {
         return paisesControlados;
     }
 
-    public void setPaisesControlados(HashMap<Pais, Integer> paisesControlados) {
+    public void setPaisesControlados(HashMap<String, Integer> paisesControlados) {
         this.paisesControlados = paisesControlados;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        JugadorJuego that = (JugadorJuego) o;
+        return id == that.id && totalTropas == that.totalTropas && tropasTurno == that.tropasTurno && Objects.equals(nombre, that.nombre) && Objects.equals(paisesControlados, that.paisesControlados) && Objects.equals(color, that.color) && Objects.equals(token, that.token);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, nombre, totalTropas, tropasTurno, paisesControlados, color, token);
     }
 
     public String getColor() {

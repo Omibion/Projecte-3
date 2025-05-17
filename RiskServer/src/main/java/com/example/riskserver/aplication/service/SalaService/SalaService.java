@@ -54,7 +54,7 @@ public class SalaService {
         p.setDate(new Date());
         p.setAdmin_id(user.getId());
         salasJpaRepository.save(p);
-        Jugadorp j = JugadorpBuilder.build(user,p,token);
+        Jugadorp j = JugadorpBuilder.build(user,p,token, null);
         jugadorpJpaRepository.save(j);
         List <Jugadorp> jugs = new ArrayList<>();
         jugs.add(j);
@@ -84,7 +84,7 @@ public class SalaService {
         Sala s = SalaBuilder.build(p, jugadorps);
         if(jugadorps.size()<3){
             Partida pa = partidaJpaRepository.findById(sala);
-            Jugadorp j = JugadorpBuilder.build(u,pa,token);
+            Jugadorp j = JugadorpBuilder.build(u,pa,token,null);
             jugadorpJpaRepository.save(j);
             s.getJugadores().add(j);
         }

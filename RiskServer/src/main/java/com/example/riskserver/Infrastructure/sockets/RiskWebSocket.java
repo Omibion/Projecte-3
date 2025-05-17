@@ -2,10 +2,13 @@ package com.example.riskserver.Infrastructure.sockets;
 
 import com.example.riskserver.Infrastructure.GameManager;
 import com.example.riskserver.Infrastructure.PlayerSession;
+import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
 import com.example.riskserver.aplication.dto.*;
 import com.example.riskserver.aplication.service.LoginService.LoginService;
 import com.example.riskserver.aplication.service.SalaService.SalaService;
 import com.example.riskserver.domain.model.Jugadorp;
+import com.example.riskserver.domain.model.Partida;
 import com.example.riskserver.domain.model.Sala;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -40,17 +43,23 @@ public class RiskWebSocket extends WebSocketServer {
     private final SalaService salaService;
     private final ObjectMapper objectMapper;
     private final GameManager gameManager;
+    private final JugadorpJpaRepository  jugadorpJpaRepository;
+    private final PartidaJpaRepository partidaJpaRepository;
 
     public RiskWebSocket(InetSocketAddress address,
                          LoginService loginService,
                          SalaService salaService,
                          ObjectMapper objectMapper,
-                         GameManager gameManager) {
+                         GameManager gameManager,
+                         JugadorpJpaRepository jugadorpJpaRepository,
+                         PartidaJpaRepository partidaJpaRepository) {
         super(address);
         this.loginService = loginService;
         this.salaService = salaService;
         this.objectMapper = objectMapper;
         this.gameManager = gameManager;
+        this.jugadorpJpaRepository = jugadorpJpaRepository;
+        this.partidaJpaRepository = partidaJpaRepository;
     }
 
     @Override
@@ -85,7 +94,8 @@ public class RiskWebSocket extends WebSocketServer {
                                 UpdateUsersBC bc = new UpdateUsersBC();
                                 bc.setResponse("updateUserBC");
                                 bc.setCode(200);
-                                bc.setJugadores(updatedSala.getJugadores());
+                                bc.setSala(updatedSala);
+
                                 broadcastToSala(gameId, bc);
                             }
                         } catch (Exception e) {
@@ -132,7 +142,7 @@ public class RiskWebSocket extends WebSocketServer {
                     handleReconnect(conn, jsonNode);
                     break;
                 case "seleccionarPaisRQ":
-                case "ATACAR":
+                case "saltarTurnoRQ":
                 case "FORTIFICAR":
                 case "PASAR_TURNO":
                     handleGameMessage(conn, jsonNode);
@@ -172,7 +182,12 @@ public class RiskWebSocket extends WebSocketServer {
         UpdateUsersBC bc = new UpdateUsersBC();
         bc.setResponse("updateUserBC");
         bc.setCode(200);
-        bc.setJugadores(rq.getSala().getJugadores());
+        bc.setSala(rq.getSala());
+        for(Jugadorp j : rq.getSala().getJugadores()) {
+            int id = rq.getSala().getId();
+            j.setPartida(partidaJpaRepository.findById(id));
+            jugadorpJpaRepository.save(j);
+        }
         broadcastToSala(rq.getSala().getId(), bc);
 
         // Verifica si todos los jugadores están listos
@@ -191,7 +206,7 @@ public class RiskWebSocket extends WebSocketServer {
 
                 HashMap<String, PlayerSession> jugadoresASala = new HashMap<>();
                 for(Jugadorp j : rq.getSala().getJugadores()) {
-                    PlayerSession p = tokenToSession.get(rq.getToken());
+                    PlayerSession p = tokenToSession.get(j.getToken());
                     jugadoresASala.put(j.getToken(), p);
                     gameManager.addPlayerToGame(rq.getSala().getId()+"",p);
                 }
@@ -218,7 +233,7 @@ public class RiskWebSocket extends WebSocketServer {
             UpdateUsersBC bc = new UpdateUsersBC();
             bc.setResponse("updateUserBC");
             bc.setCode(200);
-            bc.setJugadores(updatedSala.getJugadores());
+            bc.setSala(updatedSala);
             broadcastToSala(rq.getIdSala(), bc);
         }
     }
@@ -227,7 +242,6 @@ public class RiskWebSocket extends WebSocketServer {
         JoinSalaRQ rq = objectMapper.treeToValue(jsonNode, JoinSalaRQ.class);
         UpdateUsersBC bc = new UpdateUsersBC();
         Sala sala = null;
-
         if (rq.getSala() < 0 || rq.getUser() < 0) {
             sendError(conn, "Invalid room or user number.", rq.getToken());
             return;
@@ -243,7 +257,7 @@ public class RiskWebSocket extends WebSocketServer {
         sendResponse(conn, rs, rq.getToken());
         bc.setCode(200);
         bc.setResponse("updateUserBC");
-        bc.setJugadores(sala.getJugadores());
+        bc.setSala(sala);
         broadcastToSala(sala.getId(), bc);
     }
 

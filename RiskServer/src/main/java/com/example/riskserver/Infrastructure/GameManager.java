@@ -174,7 +174,7 @@ public class GameManager {
      * Detiene todas las salas (para el cierre del servidor)
      */
     public void shutdown() {
-        activeGames.values().forEach(GameSession::stopGame);
+      //  activeGames.values().forEach(GameSession::stopGame);
         activeGames.clear();
         sessionToGameMap.clear();
     }

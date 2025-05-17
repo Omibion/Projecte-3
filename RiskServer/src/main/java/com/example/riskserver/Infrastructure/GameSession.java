@@ -1,7 +1,9 @@
 package com.example.riskserver.Infrastructure;
 
 import com.example.riskserver.Infrastructure.persistence.*;
+import com.example.riskserver.aplication.dto.JoinSalaRQ;
 import com.example.riskserver.aplication.dto.PartidaRS;
+import com.example.riskserver.aplication.dto.SeleccionPaisRQ;
 import com.example.riskserver.aplication.service.GameService.GameService;
 import com.example.riskserver.domain.model.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class GameSession {
+
     private final String gameId;
     private final Map<String, PlayerSession> players = new ConcurrentHashMap<>();
     private final Map<WebSocket, String> sessionToPlayer = new ConcurrentHashMap<>();
@@ -32,11 +35,28 @@ public class GameSession {
     private final Map<WebSocket, String> connectionToToken = new ConcurrentHashMap<>();
     // Estado del juego
     private List<JugadorJuego> jugadoresEnPartida;
-    private AtomicInteger currentPlayerIndex = new AtomicInteger(0);
+    private int currentPlayerIndex =0;
     private Map<String, Integer> territorioTropas = new ConcurrentHashMap<>();
     private Map<String, String> territorioJugador = new ConcurrentHashMap<>();
     private Map<String, List<String>> fronterasCache = new ConcurrentHashMap<>();
 
+    private final ThreadLocal<PartidaJuego> partidaJuegoThreadLocal = ThreadLocal.withInitial(() -> {
+        PartidaJuego partida = new PartidaJuego();
+        partida.setJugadores(jugadoresEnPartida);
+        return partida;
+    });
+    // Métodos de acceso al ThreadLocal
+    public PartidaJuego getPartidaJuego() {
+        return partidaJuegoThreadLocal.get();
+    }
+
+    public void setPartidaJuego(PartidaJuego partidaJuego) {
+        partidaJuegoThreadLocal.set(partidaJuego);
+    }
+
+    public void removePartidaJuego() {
+        partidaJuegoThreadLocal.remove();
+    }
     public GameSession(String gameId, ObjectMapper objectMapper,  PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository, PaisJPARepository paisRepository, ContinentJPARepository continentRepository, FronteraJPARepository fronteraRepository) {
         this.gameId = gameId;
         this.objectMapper = objectMapper;
@@ -74,7 +94,6 @@ public class GameSession {
 
         this.gameRunning = true;
         this.jugadoresEnPartida = buildJugador(gameId);
-        inicializarTablero();
 
         this.gameThread = new Thread(this::runGame);
         this.gameThread.setName("GameThread-" + gameId);
@@ -83,34 +102,36 @@ public class GameSession {
 
 
 
+    // Método runGame modificado
     private void runGame() {
-        while (gameRunning) {
-            try {
-                // Bloquea hasta recibir mensaje (con timeout para chequeos)
-                String message = inputQueue.poll(60, TimeUnit.SECONDS);
+        try {
+            // Inicialización de la partida para este hilo
+            PartidaJuego partidaJuego = getPartidaJuego();
+            inicializarTablero(partidaJuego);
 
+            while (gameRunning) {
+                String message = inputQueue.poll(60, TimeUnit.SECONDS);
                 if (message != null) {
                     System.out.println("[GameThread] Procesando: " + message);
                     procesarMensaje(message);
                 }
-
-            } catch (InterruptedException e) {
-                System.out.println("[GameThread] Interrupción recibida");
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                System.err.println("[GameThread] Error crítico: " + e.getMessage());
-                e.printStackTrace();
             }
+        } catch (InterruptedException e) {
+            System.out.println("[GameThread] Interrupción recibida");
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            System.err.println("[GameThread] Error crítico: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            removePartidaJuego(); // Limpieza
+            System.out.println("[GameThread] Finalizado para gameId: " + gameId);
         }
-        System.out.println("[GameThread] Finalizado para gameId: " + gameId);
     }
     private void procesarMensaje(String message) {
         try {
             JsonNode json = objectMapper.readTree(message);
             String token = json.get("token").asText();
             String request = json.get("request").asText();
-            JsonNode data = json.get("data");
 
             JugadorJuego jugadorActual = getJugadorActual();
 
@@ -122,12 +143,12 @@ public class GameSession {
 
             switch (request) {
                 case "seleccionarPaisRQ":
-                    // handleAtaque(jugadorActual, data);
+                    handleelegirpais(jugadorActual, json);
                     break;
-                case "FORTIFICAR":
-                    //  handleFortificacion(jugadorActual, data);
+                case "reforzarPaisRQ":
+                    handleReforzarPais(jugadorActual, json);
                     break;
-                case "PASAR_TURNO":
+                case "saltarTurnoRQ":
                     siguienteTurno();
                     break;
                 default:
@@ -138,75 +159,102 @@ public class GameSession {
         }
     }
 
+    private void handleReforzarPais(JugadorJuego jugadorActual, JsonNode json) {
+    }
+
+    private void handleelegirpais(JugadorJuego jugadorActual, JsonNode data) {
+        try {
+            SeleccionPaisRQ rq = objectMapper.treeToValue(data, SeleccionPaisRQ.class);
+            Pais paisSeleccionado = paisRepository.findByNom(rq.getPais());
+
+            // Actualiza el estado del juego en el hilo actual
+            PartidaJuego partidaActual = getPartidaJuego();
+            jugadorActual.getPaisesControlados().put(paisSeleccionado.getNom(), 1);
+
+            territorioJugador.put(paisSeleccionado.getNom(), jugadorActual.getToken());
+            territorioTropas.put(paisSeleccionado.getNom(), 1);
+            jugadorActual.setTropasTurno(jugadorActual.getTropasTurno() - 1);
+
+            // Actualiza y envía el estado de la partida
+            partidaActual.setTurno(jugadoresEnPartida.get(currentPlayerIndex).getId());
 
 
-    private void inicializarTablero() {
-        // 1. Limpiar selecciones previas
+            PartidaRS partidaRS = new PartidaRS();
+            partidaRS.setResponse("partidaBC");
+            partidaRS.setCode(200);
+            currentPlayerIndex = (currentPlayerIndex + 1) % jugadoresEnPartida.size();
+            partidaActual.setTurno(jugadoresEnPartida.get(currentPlayerIndex).getId());
+
+            int paisesColocaos=0;
+            for(JugadorJuego j :  partidaActual.getJugadores()){
+                paisesColocaos=+j.getPaisesControlados().size();
+            }
+
+            if(paisRepository.count()==paisesColocaos){
+                partidaActual.setFase(Estat.REFORC_PAIS);
+            }
+            partidaRS.setPartida(partidaActual);
+            broadcast(toJson(partidaRS));
+
+
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    // Método inicializarTablero modificado
+    private void inicializarTablero(PartidaJuego partidaJuego) {
         territorioJugador.clear();
         territorioTropas.clear();
 
-        // 2. Inicializar todos los países sin dueño
         List<Pais> paisesDisponibles = new ArrayList<>(paisRepository.findAll());
-
-        // 3. Asignar tropas iniciales
         int tropasPorJugador = calcularTropasIniciales(jugadoresEnPartida.size());
+
         for (JugadorJuego jugador : jugadoresEnPartida) {
             jugador.setTropasTurno(tropasPorJugador);
         }
 
-        // 4. Iniciar fase de selección
-        iniciarFaseSeleccionPaises(paisesDisponibles);
+        partidaJuego.setFase(Estat.COL_LOCAR_INICIAL);
+        partidaJuego.setTurno(jugadoresEnPartida.get(0).getId());
+
+        iniciarFaseSeleccionPaises(paisesDisponibles, partidaJuego);
     }
 
-    private void iniciarFaseSeleccionPaises(List<Pais> paisesDisponibles) {
+    // Método iniciarFaseSeleccionPaises modificado
+    private void iniciarFaseSeleccionPaises(List<Pais> paisesDisponibles, PartidaJuego partidaJuego) {
         currentPhase = Estat.COL_LOCAR_INICIAL;
-        int jugadorIndex = 0;
-        PartidaJuego pj = new PartidaJuego();
-        pj.setJugadores(jugadoresEnPartida);
-        pj.setFase(currentPhase);
-        pj.setTurno(jugadoresEnPartida.get(jugadorIndex).getId());
+
         PartidaRS p = new PartidaRS();
         p.setResponse("partidaBC");
-        p.setPartida(pj);
+        p.setPartida(partidaJuego);
         p.setCode(200);
         broadcast(toJson(p));
 
-        while (!paisesDisponibles.isEmpty()) {
-
-            JugadorJuego jugadorActual = jugadoresEnPartida.get(jugadorIndex);
-
-            // Esperar selección (implementación más abajo)
-            Pais paisSeleccionado = esperarSeleccionPais(jugadorActual);
-            jugadorActual.getPaisesControlados().put(paisSeleccionado,1);
-            // Procesar selección
-            territorioJugador.put(paisSeleccionado.getNom(), jugadorActual.getToken());
-            territorioTropas.put(paisSeleccionado.getNom(), 1);
-
-            jugadorActual.setTropasTurno(jugadorActual.getTropasTurno() - 1);
-            paisesDisponibles.remove(paisSeleccionado);
-
-
-            // Notificar a todos
-            broadcastPaisSeleccionado(paisSeleccionado, jugadorActual);
-
-            jugadorIndex = (jugadorIndex + 1) % jugadoresEnPartida.size();
-        }
-
-        // Todos los países han sido asignados
         currentPhase = Estat.REFORC_TROPES;
-        broadcastFaseInicialCompletada();
+        broadcastFaseInicialCompletada(partidaJuego);
     }
 
-    private void enviarSolicitudSeleccion(JugadorJuego jugador, List<Pais> paisesDisponibles) {
-        Map<String, Object> mensaje = new HashMap<>();
-        mensaje.put("evento", "SELECCIONAR_PAIS");
-        mensaje.put("paisesDisponibles", paisesDisponibles.stream()
-                .map(Pais::getNom)
-                .collect(Collectors.toList()));
-        mensaje.put("tropasDisponibles", jugador.getTropasTurno());
-        mensaje.put("tiempoLimite", 60); // 60 segundos para seleccionar
+    // Método broadcastFaseInicialCompletada modificado
+    private void broadcastFaseInicialCompletada(PartidaJuego partidaJuego) {
+        Map<String, List<String>> territoriosPorJugador = new HashMap<>();
 
-        sendToPlayer(jugador.getToken(), toJson(mensaje));
+        for (JugadorJuego jugador : jugadoresEnPartida) {
+            List<String> territorios = territorioJugador.entrySet().stream()
+                    .filter(e -> e.getValue().equals(jugador.getToken()))
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
+            territoriosPorJugador.put(jugador.getNombre(), territorios);
+        }
+
+        PartidaRS rs = new PartidaRS();
+        rs.setCode(200);
+        rs.setResponse("partidaBC");
+        partidaJuego.setTurno(jugadoresEnPartida.get(0).getId());
+        partidaJuego.setFase(Estat.COL_LOCAR_INICIAL);
+        rs.setPartida(partidaJuego);
+
+        broadcast(toJson(rs));
     }
 
     private Pais esperarSeleccionPais(JugadorJuego jugador) {
@@ -405,6 +453,7 @@ public class GameSession {
 
 
     private void broadcast(String message) {
+        System.out.println("Broadcast: " + message);
         players.values().forEach(player -> player.send(message));
     }
 
@@ -512,23 +561,20 @@ public class GameSession {
 
     private void siguienteTurno() {
         // Rotar jugadores
-        currentPlayerIndex.set((currentPlayerIndex.get() + 1) % jugadoresEnPartida.size());
+        currentPlayerIndex=(currentPlayerIndex + 1) % jugadoresEnPartida.size();
+        PartidaJuego partidaActual = getPartidaJuego();
 
-        // Obtener nuevo jugador
-        JugadorJuego nuevoTurno = getJugadorActual();
+        partidaActual.setTurno(jugadoresEnPartida.get(currentPlayerIndex).getId());
+        PartidaRS rs = new  PartidaRS();
+        rs.setCode(200);
+        rs.setResponse("partidaRS");
+        rs.setPartida(partidaActual);
+        broadcast(toJson(rs));
 
-        // Notificar cambio de turno a todos
-        Map<String, Object> cambioTurno = new HashMap<>();
-        cambioTurno.put("evento", "CAMBIO_TURNO");
-        cambioTurno.put("jugadorActual", nuevoTurno.getNombre());
-        broadcast(toJson(cambioTurno));
-
-        // Iniciar el turno del nuevo jugador
-        iniciarTurno(nuevoTurno);
     }
 
     private JugadorJuego getJugadorActual() {
-        return jugadoresEnPartida.get(currentPlayerIndex.get());
+        return jugadoresEnPartida.get(currentPlayerIndex);
     }
 
     public int getPlayerCount() {

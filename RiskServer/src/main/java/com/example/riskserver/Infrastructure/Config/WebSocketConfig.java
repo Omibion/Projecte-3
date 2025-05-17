@@ -1,6 +1,8 @@
 package com.example.riskserver.Infrastructure.Config;
 
 import com.example.riskserver.Infrastructure.GameManager;
+import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
 import com.example.riskserver.Infrastructure.sockets.RiskWebSocket;
 import com.example.riskserver.aplication.service.LoginService.LoginService;
 import com.example.riskserver.aplication.service.SalaService.SalaService;
@@ -30,7 +32,9 @@ public class WebSocketConfig {
                                        LoginService loginService,
                                        SalaService salaService,
                                        ObjectMapper objectMapper,
-                                       GameManager gameManager) {
-        return new RiskWebSocket(address, loginService,salaService, objectMapper, gameManager);
+                                       GameManager gameManager,
+                                       JugadorpJpaRepository jugadorpJpaRepository,
+                                       PartidaJpaRepository partidaJpaRepository) {
+        return new RiskWebSocket(address, loginService,salaService, objectMapper, gameManager,jugadorpJpaRepository, partidaJpaRepository);
     }
 }

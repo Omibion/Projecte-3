@@ -1,13 +1,14 @@
 package com.example.riskserver.aplication.dto;
 
 import com.example.riskserver.domain.model.Jugadorp;
+import com.example.riskserver.domain.model.Sala;
 
 import java.util.List;
 
 public class UpdateUsersBC {
     String response;
     int code;
-    List<Jugadorp> jugadores;
+    Sala sala;
 
     public String getResponse() {
         return response;
@@ -25,11 +26,11 @@ public class UpdateUsersBC {
         this.code = code;
     }
 
-    public List<Jugadorp> getJugadores() {
-        return jugadores;
+    public Sala getSala() {
+        return sala;
     }
 
-    public void setJugadores(List<Jugadorp> jugadors) {
-        this.jugadores = jugadors;
+    public void setSala(Sala sala) {
+        this.sala = sala;
     }
 }
