@@ -2,6 +2,7 @@ package com.example.riskserver.domain.model;
 
 import java.util.HashMap;
 import java.util.Objects;
+import java.util.Set;
 
 public class JugadorJuego {
     long id;
@@ -11,6 +12,15 @@ public class JugadorJuego {
     HashMap<String, Integer> paisesControlados;
     String color;
     String token;
+    private Set<Integer> continentesControlados;
+
+    public Set<Integer> getContinentesControlados() {
+        return continentesControlados;
+    }
+
+    public void setContinentesControlados(Set<Integer> continentesControlados) {
+        this.continentesControlados = continentesControlados;
+    }
 
     public JugadorJuego() {
     }

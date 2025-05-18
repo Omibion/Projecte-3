@@ -143,7 +143,8 @@ public class RiskWebSocket extends WebSocketServer {
                     break;
                 case "seleccionarPaisRQ":
                 case "saltarTurnoRQ":
-                case "FORTIFICAR":
+                case "reforzarPaisRQ":
+                case "reforzarTurnoRQ":
                 case "PASAR_TURNO":
                     handleGameMessage(conn, jsonNode);
                     break;

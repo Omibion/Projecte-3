@@ -1,9 +1,6 @@
 package com.example.riskserver.domain.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
+import jakarta.persistence.*;
 
 import java.util.List;
 
@@ -15,7 +12,8 @@ public class Continent {
     private String nom;
     @Column
     private int reforç;
-    @OneToMany(mappedBy = "continent")
+    @OneToMany(mappedBy = "continent",fetch = FetchType.EAGER)//Es eager per que no hi han gaires paisos per continent
+
     private List<Pais> paisos;
 
     public Continent() {
