@@ -1,17 +1,17 @@
 package com.example.riskserver.aplication.dto;
 
-public class AtacarRQ {
-    String request;
+public class TeAtacanRS {
+    String response;
     String paisAtacante;
     String paisDefensor;
-    int numTropas;
+    String NumTropasAtaque;
 
-    public String getRequest() {
-        return request;
+    public String getResponse() {
+        return response;
     }
 
-    public void setRequest(String request) {
-        this.request = request;
+    public void setResponse(String response) {
+        this.response = response;
     }
 
     public String getPaisAtacante() {
@@ -30,11 +30,11 @@ public class AtacarRQ {
         this.paisDefensor = paisDefensor;
     }
 
-    public int getNumTropas() {
-        return numTropas;
+    public String getNumTropasAtaque() {
+        return NumTropasAtaque;
     }
 
-    public void setNumTropas(int numTropas) {
-        this.numTropas = numTropas;
+    public void setNumTropasAtaque(String numTropasAtaque) {
+        NumTropasAtaque = numTropasAtaque;
     }
 }

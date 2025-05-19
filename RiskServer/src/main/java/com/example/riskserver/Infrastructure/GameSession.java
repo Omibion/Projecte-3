@@ -161,6 +161,13 @@ public class GameSession {
                     break;
                 case "reforzarTurnoRQ":
                     handleReforzarPais(jugadorActual, json);
+                    break;
+                case "atacarRQ":
+                    handleAtacar(jugadorActual, json);
+                    break;
+                case "meAtacanRQ":
+                    handleMeAtacan(jugadorActual,json);
+                    break;
                 default:
                     sendToPlayer(token, "Acción no válida");
             }
@@ -169,13 +176,25 @@ public class GameSession {
         }
     }
 
+    private void handleAtacar(JugadorJuego jugadorActual, JsonNode json) {
+        AtacarRQ rq = objectMapper.convertValue(json, AtacarRQ.class);
+        JugadorJuego defensor = null;
+        for(JugadorJuego j : jugadoresEnPartida){
+            if(j.getPaisesControlados().containsKey(rq.getPaisDefensor())){
+                defensor= j;
+                break;
+            }
+        }
+
+    }
+
     private void handleReforzarPais(JugadorJuego jugadorActual, JsonNode json) {
         ReforzarPaisRQ rq = objectMapper.convertValue(json, ReforzarPaisRQ.class);
         if(rq.getRequest().equals("reforzarTurnoRQ")) {
             jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularTropasInicioTurno(jugadorActual));
             jugadorActual.setTropasTurno(calcularTropasInicioTurno(jugadorActual));
-           // jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
-          //  jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
+            jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
+            jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
         }
         int tropasFinal=jugadorActual.getPaisesControlados().get(rq.getNom())+rq.getTropas();
         int tropasQuedan=jugadorActual.getTropasTurno()-rq.getTropas();
