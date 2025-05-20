@@ -4,6 +4,7 @@ public class AtacarRQ {
     String request;
     String paisAtacante;
     String paisDefensor;
+    String token;
     int numTropas;
 
     public String getRequest() {
@@ -28,6 +29,14 @@ public class AtacarRQ {
 
     public void setPaisDefensor(String paisDefensor) {
         this.paisDefensor = paisDefensor;
+    }
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
     }
 
     public int getNumTropas() {

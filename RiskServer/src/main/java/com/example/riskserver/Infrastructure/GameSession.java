@@ -113,6 +113,7 @@ public class GameSession {
         try {
             this.jugadoresEnPartida = buildJugador(gameId);
             // Inicialización de la partida para este hilo
+            cargarFronterasEnMemoria();
             PartidaJuego partidaJuego = getPartidaJuego();
             inicializarTablero(partidaJuego);
 
@@ -144,10 +145,10 @@ public class GameSession {
             JugadorJuego jugadorActual = getJugadorActual();
 
             // Validar que el token coincide con el jugador del turno actual
-            if (!jugadorActual.getToken().equals(token)) {
-                sendToPlayer(token, "No es tu turno");
-                return;
-            }
+//            if (!jugadorActual.getToken().equals(token)) {
+//                sendToPlayer(token, "No es tu turno");
+//                return;
+//            }
 
             switch (request) {
                 case "seleccionarPaisRQ":
@@ -168,6 +169,8 @@ public class GameSession {
                 case "meAtacanRQ":
                     handleMeAtacan(jugadorActual,json);
                     break;
+                case "conquistaRQ":
+                    handleConquistaRQ(jugadorActual,json);
                 default:
                     sendToPlayer(token, "Acción no válida");
             }
@@ -175,6 +178,116 @@ public class GameSession {
             System.err.println("Error al parsear JSON: " + e.getMessage());
         }
     }
+
+    private void handleConquistaRQ(JugadorJuego jugadorActual, JsonNode json) {
+
+    }
+
+    private void handleMeAtacan(JugadorJuego jugadorActual, JsonNode json) {
+        MeAtacanRQ rq = objectMapper.convertValue(json, MeAtacanRQ.class);
+        ResultadoAtaqueRS rs = new ResultadoAtaqueRS();
+        JugadorJuego atacante = null;
+
+        // Buscar al atacante real desde la lista de jugadores
+        for (JugadorJuego j : jugadoresEnPartida) {
+            if (j.getPaisesControlados().containsKey(rq.getPaisAtacante())) {
+                atacante = j;
+                break;
+            }
+        }
+
+        if (atacante == null) {
+            System.err.println("No se encontró atacante para el país: " + rq.getPaisAtacante());
+            return;
+        }
+
+        List<Integer> dadosAtaque = new ArrayList<>();
+        for (int i = 0; i < rq.getNumTropasAtaque(); i++) {
+            dadosAtaque.add(new Random().nextInt(6) + 1);
+        }
+
+        List<Integer> dadosDefensa = new ArrayList<>();
+        for (int i = 0; i < rq.getNumTropasDefensa(); i++) {
+            dadosDefensa.add(new Random().nextInt(6) + 1);
+        }
+
+        Collections.sort(dadosAtaque, Collections.reverseOrder());
+        Collections.sort(dadosDefensa, Collections.reverseOrder());
+
+        int tropasPerdidasDefensor = 0;
+        int tropasPerdidasAtacante = 0;
+
+
+        int comparaciones = Math.min(dadosAtaque.size(), dadosDefensa.size());
+        for (int i = 0; i < comparaciones; i++) {
+            if (dadosDefensa.get(i) >= dadosAtaque.get(i)) {
+                tropasPerdidasAtacante++;
+            } else {
+                tropasPerdidasDefensor++;
+            }
+        }
+
+        // Actualizar tropas en el país atacante
+        int tropasAtacanteActual = atacante.getPaisesControlados().get(rq.getPaisAtacante());
+        atacante.getPaisesControlados().put(rq.getPaisAtacante(), tropasAtacanteActual - tropasPerdidasAtacante);
+
+        // Actualizar tropas en el país defensor
+        String pais = rq.getPaisDefensor();
+        JugadorJuego defensor = null;
+        for(JugadorJuego j : jugadoresEnPartida) {
+            for(String s: j.getPaisesControlados().keySet()) {
+                if(s.equals(pais)) {
+                    defensor = j;
+                    break;
+                }
+            }
+        }
+        int tropasDefensaActual = defensor.getPaisesControlados().get(pais);
+        int nuevasTropasDefensor = tropasDefensaActual - tropasPerdidasDefensor;
+        int nuevasTropasAtacante = tropasAtacanteActual-tropasPerdidasAtacante;
+
+        if (nuevasTropasDefensor <= 0) {
+            defensor.getPaisesControlados().remove(rq.getPaisDefensor());
+            atacante.getPaisesControlados().put(rq.getPaisDefensor(), 1); // Tropas mínimas por ahora
+            // TODO: pedir al atacante cuántas tropas quiere mover
+        } else {
+            defensor.getPaisesControlados().put(rq.getPaisDefensor(), nuevasTropasDefensor);
+            atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante);
+        }
+
+        // Asegurar que los objetos se mantienen en la lista (opcional si son referencias directas)
+        for (int i = 0; i < jugadoresEnPartida.size(); i++) {
+            JugadorJuego j = jugadoresEnPartida.get(i);
+            if (j.getToken().equals(defensor.getToken())) {
+                jugadoresEnPartida.set(i, defensor);
+            } else if (j.getToken().equals(atacante.getToken())) {
+                jugadoresEnPartida.set(i, atacante);
+            }
+        }
+    ResultadoAtaqueRS rrs = new ResultadoAtaqueRS();
+        rrs.setDadosAtaque(dadosAtaque);
+        rrs.setDadosDefensa(dadosDefensa);
+        rrs.setNumTropasAtaque(rq.getNumTropasAtaque());
+        rrs.setPaisAtacante(rq.getPaisAtacante());
+        rrs.setPaisDefensor(rq.getPaisDefensor());
+        rrs.setNumTropasDefensa(rq.getNumTropasDefensa());
+        rrs.setTropasPerdidasDefensor(tropasPerdidasDefensor);
+        rrs.setTropasPerdidasAtacante(tropasPerdidasAtacante);
+        rrs.setResponse("resultadoAtaqueRS");
+        rrs.setCode(200);
+
+        sendToPlayer(atacante.getToken(),toJson(rrs));
+        sendToPlayer(defensor.getToken(),toJson(rrs));
+        PartidaRS prs = new PartidaRS();
+
+        PartidaJuego p = getPartidaJuego();
+        p.setJugadores(jugadoresEnPartida);
+        prs.setPartida(p);
+        prs.setResponse("partidaBC");
+        prs.setCode(200);
+        broadcast(toJson(prs));
+    }
+
 
     private void handleAtacar(JugadorJuego jugadorActual, JsonNode json) {
         AtacarRQ rq = objectMapper.convertValue(json, AtacarRQ.class);
@@ -185,8 +298,27 @@ public class GameSession {
                 break;
             }
         }
+        if(sonTerritoriosAdyacentes(rq.getPaisAtacante(),rq.getPaisDefensor())){
+            TeAtacanRS rs = new TeAtacanRS();
+            rs.setResponse("teAtacanRS");
+            rs.setCode(200);
+            int numTropas= rq.getNumTropas();
+            rs.setNumTropasAtaque(numTropas);
+            rs.setPaisAtacante(rq.getPaisAtacante());
+            rs.setPaisDefensor(rq.getPaisDefensor());
+            sendToPlayer(defensor.getToken(),toJson(rs));
+        }else{
+            ErrorRS errorRS = new ErrorRS();
+            errorRS.setResponse("error");
+            errorRS.setMesage("No son paises contiguos");
+            errorRS.setCode(407);
+            System.out.println(errorRS);
+            System.out.println(toJson(errorRS));
+            sendToPlayer(defensor.getToken(),toJson(errorRS));
+        }
 
     }
+
 
     private void handleReforzarPais(JugadorJuego jugadorActual, JsonNode json) {
         ReforzarPaisRQ rq = objectMapper.convertValue(json, ReforzarPaisRQ.class);
@@ -196,6 +328,7 @@ public class GameSession {
             jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
             jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
         }
+
         int tropasFinal=jugadorActual.getPaisesControlados().get(rq.getNom())+rq.getTropas();
         int tropasQuedan=jugadorActual.getTropasTurno()-rq.getTropas();
         if(jugadorActual.getPaisesControlados().containsKey(rq.getNom())) {
@@ -210,7 +343,7 @@ public class GameSession {
                 rs.setCode(200);
                 rs.setResponse("partidaBC");
                 rs.setPartida(partidaActual);
-                next();
+                avanzarAlSiguienteConTropas();
                 int index = getCurrentPlayerIndex();
                 rs.getPartida().setTurno(jugadoresEnPartida.get(index).getId());
                 int c=0;
@@ -220,12 +353,8 @@ public class GameSession {
                     }
                 }
                 if(c==partidaActual.jugadores.size()){
-                    if(rq.getRequest().equals("reforzarPaisRQ")){
-                        currentPhase = Estat.REFORC_TROPES;
-                    }
-                    else{
                         currentPhase = Estat.COMBAT;
-                    }
+
                     rs.getPartida().setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
@@ -240,6 +369,7 @@ public class GameSession {
                 rs.setCode(401);
                 rs.setMesage("No tienes suficientes tropas disponibles para esta acción");
                 PlayerSession player = players.get(rq.getToken());
+                System.out.println(toJson(rs));
                 player.send(toJson(rs));
             }
         }else {
@@ -247,6 +377,8 @@ public class GameSession {
             rs.setResponse("ErrorRS");
             rs.setCode(402);
             rs.setMesage("El jugador no controla este pais");
+            System.out.println(toJson(rs));
+            sendToPlayer(jugadorActual.getToken(),toJson(rs));
         }
 
     }
@@ -280,19 +412,34 @@ public class GameSession {
 
             int paisesColocaos=0;
             for(JugadorJuego j :  partidaActual.getJugadores()){
-                paisesColocaos=+j.getPaisesControlados().size();
+                paisesColocaos+=j.getPaisesControlados().size();
             }
 
             if(paisRepository.count()==paisesColocaos){
                 partidaActual.setFase(Estat.REFORC_PAIS);
             }
             partidaRS.setPartida(partidaActual);
-            broadcast(toJson(partidaRS));
+            JugadorJuego j1 =jugadoresEnPartida.get(0);
+            JugadorJuego j2 =jugadoresEnPartida.get(1);
+            String json = "{\"partida\":{\"jugadores\":[{\"id\":"+j1.getId()+",\"nombre\":\"test1\",\"totalTropas\":40,\"tropasTurno\":0,\"paisesControlados\":{\"Central America\":1,\"Argentina\":1,\"Northwest Territory\":1,\"Alberta\":1,\"Eastern United States\":1,\"Quebec\":1,\"Ukraine\":1,\"North Africa\":1,\"Scandinavia\":1,\"Iceland\":1,\"Western Europe\":20,\"Venezuela\":1,\"Great Britain\":1,\"New Guinea\":1,\"Brazil\":1,\"Alaska\":1,\"Western United States\":1,\"Ontario\":1,\"Peru\":1,\"Greenland\":1,\"Indonesia\":1},\"color\":\"BLAU\",\"token\":\"215fd24b-d682-43cd-a207-5bcec9eb4484\",\"continentesControlados\":null},{\"id\":"
+                    +j2.getId()+",\"nombre\":\"test3\",\"totalTropas\":40,\"tropasTurno\":0,\"paisesControlados\":{\"Ural\":1,\"Western Australia\":1,\"Afghanistan\":1,\"Northern Europe\":1,\"Siam\":1,\"Japan\":1,\"Egypt\":1,\"Madagascar\":1,\"Congo\":16,\"India\":1,\"Middle East\":1,\"Yakutsk\":1,\"Mongolia\":1,\"Irkutsk\":1,\"China\":1,\"Siberia\":1,\"Kamchatka\":1,\"South Africa\":1,\"Southern Europe\":5,\"East Africa\":1,\"Eastern Australia\":1},\"color\":\"VERMELL\",\"token\":\"d9dda8d9-2532-4c63-9ef7-00f01ee122d7\",\"continentesControlados\":null}],\"turno\":"+j1.getId()+",\"fase\":\"COMBAT\"},\"code\":200,\"response\":\"partidaBC\"}";
+
+            broadcast(toJson(partidaRS));//toJson(partidaRS)
 
 
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private void avanzarAlSiguienteConTropas() {
+        int totalJugadores = jugadoresEnPartida.size();
+        int intentos = 0;
+
+        do {
+            next(); // avanza al siguiente jugador
+            intentos++;
+        } while (jugadoresEnPartida.get(getCurrentPlayerIndex()).getTropasTurno() <= 0 && intentos < totalJugadores);
     }
 
 
@@ -671,9 +818,19 @@ public class GameSession {
 
     private void siguienteTurno() {
         // Rotar jugadores
-        next();
-        PartidaJuego partidaActual = getPartidaJuego();
+        PartidaJuego p = getPartidaJuego();
 
+        if(p.getFase().equals(Estat.REFORC_TROPES)){
+            currentPhase=Estat.COMBAT;
+        }else if(p.getFase().equals(Estat.COMBAT)){
+            currentPhase=Estat.RECOL_LOCACIO;
+        }else if(p.getFase().equals(Estat.RECOL_LOCACIO)){
+            next();
+            currentPhase=Estat.REFORC_TROPES;
+        }
+
+        PartidaJuego partidaActual = getPartidaJuego();
+        partidaActual.setFase(currentPhase);
         partidaActual.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
         PartidaRS rs = new  PartidaRS();
         rs.setCode(200);
@@ -709,6 +866,7 @@ public class GameSession {
     public void sendToPlayer(String playerId, String message) {
         PlayerSession player = players.get(playerId);
         if (player != null && player.getWebSocket().isOpen()) {
+            System.out.println(message);
             player.send(message);
         } else {
             System.err.println("No se pudo enviar mensaje al jugador " + playerId + ": conexión cerrada o no existe");

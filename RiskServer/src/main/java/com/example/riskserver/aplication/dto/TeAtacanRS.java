@@ -4,7 +4,16 @@ public class TeAtacanRS {
     String response;
     String paisAtacante;
     String paisDefensor;
-    String NumTropasAtaque;
+    int numTropasAtaque;
+    int code;
+
+    public int getCode() {
+        return code;
+    }
+
+    public void setCode(int code) {
+        this.code = code;
+    }
 
     public String getResponse() {
         return response;
@@ -30,11 +39,11 @@ public class TeAtacanRS {
         this.paisDefensor = paisDefensor;
     }
 
-    public String getNumTropasAtaque() {
-        return NumTropasAtaque;
+    public int getNumTropasAtaque() {
+        return numTropasAtaque;
     }
 
-    public void setNumTropasAtaque(String numTropasAtaque) {
-        NumTropasAtaque = numTropasAtaque;
+    public void setNumTropasAtaque(int numTropasAtaque) {
+        this.numTropasAtaque = numTropasAtaque;
     }
 }
