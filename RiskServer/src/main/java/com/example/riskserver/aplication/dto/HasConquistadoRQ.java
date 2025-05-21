@@ -14,11 +14,11 @@ public class HasConquistadoRQ {
         this.atacante = atacante;
     }
 
-    public String getRequest() {
+    public String getResponse() {
         return response;
     }
 
-    public void setRequest(String request) {
+    public void setResponse(String request) {
         this.response = request;
     }
 
