@@ -170,7 +170,11 @@ public class GameSession {
                     handleMeAtacan(jugadorActual,json);
                     break;
                 case "conquistaRQ":
-                    handleConquistaRQ(jugadorActual,json);
+                    handleMoverTropas(jugadorActual,json);
+                    break;
+                case "moverTropasRQ":
+                    handleMoverTropas(jugadorActual,json);
+                    break;
                 default:
                     sendToPlayer(token, "Acción no válida");
             }
@@ -179,9 +183,57 @@ public class GameSession {
         }
     }
 
-    private void handleConquistaRQ(JugadorJuego jugadorActual, JsonNode json) {
+    private void handleMoverTropas(JugadorJuego jugadorActual, JsonNode json) {
+        MoverTropasRQ rq = objectMapper.convertValue(json, MoverTropasRQ.class);
+        String desde=null;
+        String hasta=null;
+        for (String pais : jugadorActual.getPaisesControlados().keySet()){
+            if(rq.getPaisOrigen().equals(pais)){
+                desde = rq.getPaisDestino();
+            } else if (rq.getPaisDestino().equals(pais)) {
+                hasta = rq.getPaisOrigen();
+            }
+            if(desde!=null && hasta!=null){
+                break;
+            }
+        }
+        if(desde!=null && hasta!=null){
+            if(validarRutaTerrestre(jugadorActual.getToken(),desde,hasta,new HashSet<>())){
+                int tropasPaisatAcante=jugadorActual.getPaisesControlados().get(rq.getPaisOrigen());
+                jugadorActual.getPaisesControlados().replace(desde,tropasPaisatAcante-rq.getNumTropas());
+                if(jugadorActual.getPaisesControlados().get(desde)<1){
+                    jugadorActual.getPaisesControlados().replace(desde,tropasPaisatAcante+rq.getNumTropas());
+                    ErrorRS ers=new ErrorRS();
+                    ers.setCode(500);
+                    ers.setMesage("Las tropas del pais de origen no pueden ser menos de 1");
+                    ers.setResponse("ErrorRS");
+                    System.out.println(toJson(ers));
+                    sendToPlayer(jugadorActual.getToken(),toJson(ers));
+                    return;
+                }else{
+                    jugadorActual.getPaisesControlados().put(desde,rq.getNumTropas());
+                    if(jugadorActual.getPaisesControlados().get(desde)<1){
+                        ErrorRS ers=new ErrorRS();
+                        ers.setCode(500);
+                        ers.setMesage("Las tropas del pais de origen no pueden ser menos de 1");
+                        ers.setResponse("ErrorRS");
+                        System.out.println(toJson(ers));
+                        sendToPlayer(jugadorActual.getToken(),toJson(ers));
+                        return;
+                    }
+                    PartidaRS rs = new PartidaRS();
+                    PartidaJuego partidaJuego = getPartidaJuego();
+                    partidaJuego.setJugadores(jugadoresEnPartida);
+                    rs.setCode(200);
+                    rs.setResponse("PartidaRS");
+                    rs.setPartida(partidaJuego);
+                    broadcast(toJson(rs));
+                }
+            }
+        }
 
     }
+
 
     private void handleMeAtacan(JugadorJuego jugadorActual, JsonNode json) {
         MeAtacanRQ rq = objectMapper.convertValue(json, MeAtacanRQ.class);
@@ -245,14 +297,45 @@ public class GameSession {
         int tropasDefensaActual = defensor.getPaisesControlados().get(pais);
         int nuevasTropasDefensor = tropasDefensaActual - tropasPerdidasDefensor;
         int nuevasTropasAtacante = tropasAtacanteActual-tropasPerdidasAtacante;
-
+        defensor.setTotalTropas(defensor.getTotalTropas()-tropasPerdidasDefensor);
+        atacante.setTotalTropas(atacante.getTotalTropas()-tropasPerdidasAtacante);
         if (nuevasTropasDefensor <= 0) {
             defensor.getPaisesControlados().remove(rq.getPaisDefensor());
-            atacante.getPaisesControlados().put(rq.getPaisDefensor(), 1); // Tropas mínimas por ahora
-            // TODO: pedir al atacante cuántas tropas quiere mover
+            // Asegurar que los objetos se mantienen en la lista (opcional si son referencias directas)
+            for (int i = 0; i < jugadoresEnPartida.size(); i++) {
+
+                HasConquistadoRQ rqc = new HasConquistadoRQ();
+                rqc.setConquistado(rq.getPaisDefensor());
+                rqc.setRequest("hasConquistadoRQ");
+                rqc.setAtacante(rq.getPaisAtacante());
+                rqc.setCode(200);
+                territorioJugador.remove(rq.getPaisDefensor());
+                territorioJugador.put(rq.getPaisDefensor(),atacante.getToken());
+                JugadorJuego j = jugadoresEnPartida.get(i);
+                if (j.getToken().equals(defensor.getToken())) {
+                    jugadoresEnPartida.set(i, defensor);
+                } else if (j.getToken().equals(atacante.getToken())) {
+                    jugadoresEnPartida.set(i, atacante);
+                }
+                ResultadoAtaqueRS rrs = new ResultadoAtaqueRS();
+                rrs.setDadosAtaque(dadosAtaque);
+                rrs.setDadosDefensa(dadosDefensa);
+                rrs.setNumTropasAtaque(rq.getNumTropasAtaque());
+                rrs.setPaisAtacante(rq.getPaisAtacante());
+                rrs.setPaisDefensor(rq.getPaisDefensor());
+                rrs.setNumTropasDefensa(rq.getNumTropasDefensa());
+                rrs.setTropasPerdidasDefensor(tropasPerdidasDefensor);
+                rrs.setTropasPerdidasAtacante(tropasPerdidasAtacante);
+                rrs.setResponse("resultadoAtaqueRS");
+                rrs.setCode(200);
+                sendToPlayer(atacante.getToken(),toJson(rqc));
+                return;
+            }
+
         } else {
             defensor.getPaisesControlados().put(rq.getPaisDefensor(), nuevasTropasDefensor);
             atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante);
+
         }
 
         // Asegurar que los objetos se mantienen en la lista (opcional si son referencias directas)
@@ -264,6 +347,7 @@ public class GameSession {
                 jugadoresEnPartida.set(i, atacante);
             }
         }
+
     ResultadoAtaqueRS rrs = new ResultadoAtaqueRS();
         rrs.setDadosAtaque(dadosAtaque);
         rrs.setDadosDefensa(dadosDefensa);
@@ -322,12 +406,7 @@ public class GameSession {
 
     private void handleReforzarPais(JugadorJuego jugadorActual, JsonNode json) {
         ReforzarPaisRQ rq = objectMapper.convertValue(json, ReforzarPaisRQ.class);
-        if(rq.getRequest().equals("reforzarTurnoRQ")) {
-            jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularTropasInicioTurno(jugadorActual));
-            jugadorActual.setTropasTurno(calcularTropasInicioTurno(jugadorActual));
-            jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
-            jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
-        }
+
 
         int tropasFinal=jugadorActual.getPaisesControlados().get(rq.getNom())+rq.getTropas();
         int tropasQuedan=jugadorActual.getTropasTurno()-rq.getTropas();
@@ -346,19 +425,31 @@ public class GameSession {
                 avanzarAlSiguienteConTropas();
                 int index = getCurrentPlayerIndex();
                 rs.getPartida().setTurno(jugadoresEnPartida.get(index).getId());
+
                 int c=0;
                 for(JugadorJuego j : partidaActual.jugadores){
                     if(j.getTropasTurno()==0){
                         c++;
                     }
                 }
-                if(c==partidaActual.jugadores.size()){
-                        currentPhase = Estat.COMBAT;
+                if(c==partidaActual.jugadores.size()&&rq.getRequest().equals("reforzarPaisRQ")){
+                        currentPhase = Estat.REFORC_TROPES;
+                        List<JugadorJuego> act = new ArrayList<>();
+                        for(int i =0;i<jugadoresEnPartida.size();i++){
+                            JugadorJuego j=jugadoresEnPartida.get(i);
+                            j.setTotalTropas(j.getTotalTropas()+calcularTropasInicioTurno(j));
+                            j.setTropasTurno(calcularTropasInicioTurno(j));
+                            j.setTotalTropas(j.getTotalTropas()+calcularBonusContinentes(j));
+                            j.setTropasTurno(j.getTropasTurno()+calcularBonusContinentes(j));
+                            jugadoresEnPartida.set(i, j);
+                        }
+                       partidaActual.setJugadores(jugadoresEnPartida);
 
                     rs.getPartida().setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
-                }else{
+                }
+                else{
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
                 }
@@ -549,16 +640,6 @@ public class GameSession {
 
     }
 
-    private void broadcastPaisSeleccionado(Pais pais, JugadorJuego jugador) {
-        Map<String, Object> mensaje = new HashMap<>();
-        mensaje.put("evento", "PAIS_SELECCIONADO");
-        mensaje.put("pais", pais.getNom());
-        mensaje.put("jugador", jugador.getNombre());
-        mensaje.put("tropas", 1);
-
-        broadcast(toJson(mensaje));
-    }
-
     private void handleSeleccionPais(WebSocket conn, JsonNode jsonNode) {
         String token = connectionToToken.get(conn);
         if (token == null) return;
@@ -593,46 +674,6 @@ public class GameSession {
         // Asignación atómica al cache final
         this.fronterasCache = new ConcurrentHashMap<>(tempCache);
     }
-    private void procesarAtaque(JugadorJuego jugador, String data) throws JsonProcessingException {
-        JsonNode json = objectMapper.readTree(data);
-        String desde = json.get("desde").asText();
-        String hacia = json.get("hacia").asText();
-        int tropas = json.get("tropas").asInt();
-
-        if (!validarAtaque(jugador, desde, hacia, tropas)) {
-            sendToPlayer(jugador.getToken(), "Ataque inválido");
-            return;
-        }
-
-        // Resolver batalla
-        boolean exito = resolverBatalla(
-                territorioTropas.get(desde),
-                territorioTropas.get(hacia)
-        );
-
-        if (exito) {
-            territorioJugador.put(hacia, jugador.getToken());
-            territorioTropas.put(hacia, tropas);
-            territorioTropas.merge(desde, -tropas, Integer::sum);
-
-            Map<String, Object> respuesta = new HashMap<>();
-            respuesta.put("evento", "ATAQUE_EXITOSO");
-            respuesta.put("territorio", hacia);
-            respuesta.put("nuevoDueño", jugador.getNombre());
-            broadcast(toJson(respuesta));
-        } else {
-            sendToPlayer(jugador.getToken(), "Ataque fallido");
-        }
-    }
-
-    private boolean validarAtaque(JugadorJuego jugador, String desde, String hacia, int tropas) {
-        return territorioJugador.get(desde).equals(jugador.getToken()) &&
-                !territorioJugador.get(hacia).equals(jugador.getToken()) &&
-                territorioTropas.get(desde) > tropas &&
-                tropas > 0;
-    }
-
-
 
     private void sendError(WebSocket conn, String errorMessage, String token) {
         try {
@@ -790,31 +831,37 @@ public class GameSession {
         List<Continent> todosContinentes = continentRepository.findAll();
 
         for (Continent continente : todosContinentes) {
+            List<Pais> paises = continente.getPaisos();
+            int i = 0;
             boolean controlaAhora = true;
-            for (Pais pais : continente.getPaisos()) {
+
+            // Usamos while sin break
+            while (i < paises.size() && controlaAhora) {
+                Pais pais = paises.get(i);
                 if (!jugador.getPaisesControlados().containsKey(pais.getNom())) {
-                    controlaAhora = false;
-                    break;
+                    controlaAhora = false; // marcamos que no controla el continente
                 }
+                i++;
             }
 
-            // Si controla el continente ahora...
             if (controlaAhora) {
-                // ¿Ya lo controlaba antes? (verifica si ya recibió el bonus)
                 boolean yaLoControlaba = jugador.getContinentesControlados().contains(continente.getId());
 
                 if (!yaLoControlaba) {
-                    // Es nuevo: aplicar bonus y marcarlo como controlado
                     bonusTotal += continente.getReforç();
                     jugador.getContinentesControlados().add(continente.getId());
                 }
             } else {
-                // Ya no lo controla (quizá perdió un territorio): remover de controlados
-                jugador.getContinentesControlados().remove(continente.getId());
+                if(jugador.getContinentesControlados().contains(continente.getId())) {
+                    jugador.getContinentesControlados().remove(continente.getId());
+                }
+
             }
         }
+
         return bonusTotal;
     }
+
 
     private void siguienteTurno() {
         // Rotar jugadores
@@ -828,15 +875,18 @@ public class GameSession {
             next();
             currentPhase=Estat.REFORC_TROPES;
         }
+        if(!ganador()) {
+            PartidaJuego partidaActual = getPartidaJuego();
+            partidaActual.setFase(currentPhase);
+            partidaActual.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
+            PartidaRS rs = new PartidaRS();
+            rs.setCode(200);
+            rs.setResponse("partidaRS");
+            rs.setPartida(partidaActual);
+            broadcast(toJson(rs));
+        }else{
 
-        PartidaJuego partidaActual = getPartidaJuego();
-        partidaActual.setFase(currentPhase);
-        partidaActual.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
-        PartidaRS rs = new  PartidaRS();
-        rs.setCode(200);
-        rs.setResponse("partidaRS");
-        rs.setPartida(partidaActual);
-        broadcast(toJson(rs));
+        }
 
     }
 
@@ -859,6 +909,7 @@ public class GameSession {
             jug.setNombre(j.getNombre());
             jug.setColor(j.getColors());
             jug.setPaisesControlados(new HashMap<>());
+            jug.setContinentesControlados(new HashSet<>());
             jugadorJuegos.add(jug);
         }
         return jugadorJuegos;
@@ -872,43 +923,7 @@ public class GameSession {
             System.err.println("No se pudo enviar mensaje al jugador " + playerId + ": conexión cerrada o no existe");
         }
     }
-    private void procesarFortificacion(JugadorJuego jugador, String data) throws JsonProcessingException {
-        JsonNode json = objectMapper.readTree(data);
-        String desde = json.get("desde").asText();
-        String hacia = json.get("hacia").asText();
-        int tropas = json.get("tropas").asInt();
 
-        if (!validarFortificacion(jugador, desde, hacia, tropas)) {
-            sendToPlayer(jugador.getToken(), "Fortificación inválida");
-            return;
-        }
-
-        // Validar ruta terrestre (cadena de territorios aliados)
-        if (!validarRutaTerrestre(jugador.getToken(), desde, hacia, new HashSet<>())) {
-            sendToPlayer(jugador.getToken(), "No hay ruta terrestre válida");
-            return;
-        }
-
-        // Mover tropas
-        territorioTropas.merge(desde, -tropas, Integer::sum);
-        territorioTropas.merge(hacia, tropas, Integer::sum);
-
-        // Notificar
-        Map<String, Object> respuesta = new HashMap<>();
-        respuesta.put("evento", "FORTIFICACION");
-        respuesta.put("desde", desde);
-        respuesta.put("hacia", hacia);
-        respuesta.put("tropas", tropas);
-
-        broadcast(toJson(respuesta));
-    }
-    private boolean validarFortificacion(JugadorJuego jugador, String desde, String hacia, int tropas) {
-        return territorioJugador.get(desde).equals(jugador.getToken()) &&
-                territorioJugador.get(hacia).equals(jugador.getToken()) &&
-                territorioTropas.get(desde) > tropas &&
-                tropas > 0 &&
-                sonTerritoriosAdyacentes(desde, hacia); // Implementar esta función
-    }
     private boolean validarRutaTerrestre(String tokenJugador, String actual, String destino, Set<String> visitados) {
         if (actual.equals(destino)) return true;
         visitados.add(actual);
@@ -923,21 +938,6 @@ public class GameSession {
         }
 
         return false;
-    }
-    private boolean resolverBatalla(int atacantes, int defensores) {
-        // Implementación básica con dados (puedes mejorarla)
-        Random rand = new Random();
-
-        int dadoAtacante = rand.nextInt(6) + 1;
-        int dadoDefensor = rand.nextInt(6) + 1;
-
-        if (dadoAtacante > dadoDefensor) {
-            return true; // Atacante gana
-        } else if (dadoAtacante == dadoDefensor) {
-            return rand.nextBoolean(); // Empate, decisión aleatoria
-        } else {
-            return false; // Defensor gana
-        }
     }
 
     private boolean sonTerritoriosAdyacentes(String territorio1, String territorio2) {
@@ -985,5 +985,20 @@ public class GameSession {
         if (!aunControlaContinente) {
             jugador.getContinentesControlados().remove(continenteAfectado.getId());
         }
+    }
+    public boolean ganador() {
+        for(JugadorJuego j : jugadoresEnPartida) {
+            if(j.getPaisesControlados().size()== paisRepository.count()){
+                GanadorRS rs = new GanadorRS();
+                rs.setResponse("ganadorRS");
+                rs.setToken(j.getToken());
+                rs.setId(j.getId());
+                rs.setNombre(j.getNombre());
+                rs.setCode(200);
+                broadcast(toJson(rs));
+                return true;
+            }
+        }
+        return false;
     }
 }
