@@ -1,7 +1,7 @@
 package com.example.riskserver.aplication.dto;
 
 public class HasConquistadoRQ {
-    String request;
+    String response;
     String conquistado;
     String atacante;
     int code;
@@ -15,11 +15,11 @@ public class HasConquistadoRQ {
     }
 
     public String getRequest() {
-        return request;
+        return response;
     }
 
     public void setRequest(String request) {
-        this.request = request;
+        this.response = request;
     }
 
     public String getConquistado() {

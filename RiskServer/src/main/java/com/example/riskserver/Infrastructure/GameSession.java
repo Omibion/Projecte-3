@@ -306,7 +306,7 @@ public class GameSession {
 
                 HasConquistadoRQ rqc = new HasConquistadoRQ();
                 rqc.setConquistado(rq.getPaisDefensor());
-                rqc.setRequest("hasConquistadoRQ");
+                rqc.setRequest("hasConquistadoRS");
                 rqc.setAtacante(rq.getPaisAtacante());
                 rqc.setCode(200);
                 territorioJugador.remove(rq.getPaisDefensor());
@@ -422,7 +422,10 @@ public class GameSession {
                 rs.setCode(200);
                 rs.setResponse("partidaBC");
                 rs.setPartida(partidaActual);
-                avanzarAlSiguienteConTropas();
+                if(rq.getRequest().equals("reforzarPaisRQ")){
+                    avanzarAlSiguienteConTropas();
+                }
+
                 int index = getCurrentPlayerIndex();
                 rs.getPartida().setTurno(jugadoresEnPartida.get(index).getId());
 
@@ -450,6 +453,12 @@ public class GameSession {
                     broadcast(toJson(rs));
                 }
                 else{
+                    rs.setPartida(partidaActual);
+                    broadcast(toJson(rs));
+                }
+                if(currentPhase==Estat.REFORC_TROPES&&jugadorActual.getTropasTurno()==0){
+                    currentPhase = Estat.COMBAT;
+                    partidaActual.setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
                 }
