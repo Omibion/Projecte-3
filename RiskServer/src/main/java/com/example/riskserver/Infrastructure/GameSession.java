@@ -226,7 +226,7 @@ public class GameSession {
         PartidaJuego partidaJuego = getPartidaJuego();
         partidaJuego.setJugadores(jugadoresEnPartida);
         rs.setCode(200);
-        rs.setResponse("PartidaBC");
+        rs.setResponse("partidaBC");
         rs.setPartida(partidaJuego);
         broadcast(toJson(rs));
     }
