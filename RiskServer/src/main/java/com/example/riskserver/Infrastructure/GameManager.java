@@ -88,7 +88,6 @@ public class GameManager {
      * Maneja mensajes entrantes y los redirige al GameThread específico de la partida
      */
     public void handleIncomingMessage(WebSocket session, String payload) {
-        System.out.println("Incoming Message: " + payload);
         String gameId = sessionToGameMap.get(session);
         if (gameId != null) {
             getGame(gameId).ifPresent(game -> {

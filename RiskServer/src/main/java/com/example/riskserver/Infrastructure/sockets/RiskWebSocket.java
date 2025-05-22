@@ -113,7 +113,6 @@ public class RiskWebSocket extends WebSocketServer {
     @Override
     public void onMessage(WebSocket conn, String message) {
         String clientId = conn.getRemoteSocketAddress().toString();
-        System.out.println("Message received from " + clientId + ": " + message);
 
         try {
             JsonNode jsonNode = objectMapper.readTree(message);
@@ -149,6 +148,7 @@ public class RiskWebSocket extends WebSocketServer {
                 case "meAtacanRQ":
                 case "moverTropasRQ":
                 case "conquistaRQ":
+                case "tunearJueguitoRQ":
                     handleGameMessage(conn, jsonNode);
                     break;
                 default:

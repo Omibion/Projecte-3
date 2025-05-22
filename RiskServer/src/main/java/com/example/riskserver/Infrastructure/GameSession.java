@@ -175,12 +175,19 @@ public class GameSession {
                 case "moverTropasRQ":
                     handleMoverTropas(jugadorActual,json);
                     break;
+                case "tunearJueguitoRQ":
+                    handletuneitoqueteveo(jugadorActual,json);
+                    break;
                 default:
                     sendToPlayer(token, "Acción no válida");
             }
         } catch (JsonProcessingException e) {
             System.err.println("Error al parsear JSON: " + e.getMessage());
         }
+    }
+
+    private void handletuneitoqueteveo(JugadorJuego jugadorActual, JsonNode json) {
+
     }
 
     private void handleMoverTropas(JugadorJuego jugadorActual, JsonNode json) {
@@ -451,7 +458,6 @@ public class GameSession {
                             jugadoresEnPartida.set(i, j);
                         }
                        partidaActual.setJugadores(jugadoresEnPartida);
-
                     rs.getPartida().setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
@@ -466,6 +472,8 @@ public class GameSession {
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
                 }
+
+
 
             }else{
                 ErrorRS rs = new ErrorRS();
@@ -886,6 +894,19 @@ public class GameSession {
             currentPhase=Estat.RECOL_LOCACIO;
         }else if(p.getFase().equals(Estat.RECOL_LOCACIO)){
             next();
+                JugadorJuego jugadorActual = getJugadorActual();
+                PartidaJuego partidaActual = getPartidaJuego();
+                PartidaRS rs = new PartidaRS();
+                    jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularTropasInicioTurno(jugadorActual));
+                    jugadorActual.setTropasTurno(calcularTropasInicioTurno(jugadorActual));
+                    jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
+                    jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
+                    jugadoresEnPartida.set(getCurrentPlayerIndex(), jugadorActual);
+                    partidaActual.setJugadores(jugadoresEnPartida);
+                    rs.setPartida(partidaActual);
+                    broadcast(toJson(rs));
+
+
             currentPhase=Estat.REFORC_TROPES;
         }
         if(!ganador()) {
@@ -898,7 +919,13 @@ public class GameSession {
             rs.setPartida(partidaActual);
             broadcast(toJson(rs));
         }else{
-
+            GanadorRS rs = new GanadorRS();
+            rs.setCode(200);
+            rs.setResponse("ganadorRS");
+            rs.setNombre(getJugadorActual().getNombre());
+            rs.setId(getJugadorActual().getId());
+            rs.setToken(getJugadorActual().getToken());
+            broadcast(toJson(rs));
         }
 
     }
@@ -1009,9 +1036,24 @@ public class GameSession {
                 rs.setNombre(j.getNombre());
                 rs.setCode(200);
                 broadcast(toJson(rs));
+                gameRunning=false;
+                jugadoresEnPartida.clear();
+
                 return true;
             }
         }
         return false;
+    }
+
+    public void perdedor(){
+        for(JugadorJuego j : jugadoresEnPartida) {
+            if(j.getPaisesControlados().size()== 0){
+                HasPerdidoRS rs = new HasPerdidoRS();
+            rs.setResponse("hasPerdidoRS");
+            rs.setCode(200);
+            sendToPlayer(j.getToken(),toJson(rs));
+            jugadoresEnPartida.remove(j);
+            }
+        }
     }
 }
