@@ -21,13 +21,14 @@ public class GameManager {
     private final PaisJPARepository paisRepository;
     private final ContinentJPARepository continentRepository;
     private final FronteraJPARepository fronteraRepository;
+    private final OkupaJPARepository okupaRepository;
 
     // Constructor con inyección de dependencias
     @Autowired
     public GameManager(ObjectMapper objectMapper,
                        PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository,
                        PaisJPARepository paisRepository, ContinentJPARepository continentRepository,
-                       FronteraJPARepository fronteraRepository) {
+                       FronteraJPARepository fronteraRepository, OkupaJPARepository okupaRepository) {
 
         this.objectMapper = objectMapper;
         this.partidaRepository = partidaRepository;
@@ -35,6 +36,7 @@ public class GameManager {
         this.paisRepository = paisRepository;
         this.continentRepository = continentRepository;
         this.fronteraRepository = fronteraRepository;
+        this.okupaRepository = okupaRepository;
         instance = this;
     }
 
@@ -60,8 +62,8 @@ public class GameManager {
                 jugadorRepository,
                 paisRepository,
                 continentRepository,
-                fronteraRepository
-
+                fronteraRepository,
+                okupaRepository
         );
 
         activeGames.put(gameId, newGame);

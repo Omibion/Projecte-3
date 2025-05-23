@@ -9,6 +9,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.java_websocket.WebSocket;
 
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,6 +29,7 @@ public class GameSession {
     private final PartidaJpaRepository partidaRepository;
     private final JugadorpJpaRepository jugadorRepository;
     private final PaisJPARepository paisRepository;
+    private final OkupaJPARepository okupaRepository;
     private final ContinentJPARepository continentRepository;
     private final FronteraJPARepository fronteraRepository;
     private final Map<String, CompletableFuture<String>> seleccionesPendientes = new ConcurrentHashMap<>();
@@ -34,6 +38,10 @@ public class GameSession {
     // Estado del juego
     private List<JugadorJuego> jugadoresEnPartida;
     private final ThreadLocal<Integer> currentPlayerIndex = ThreadLocal.withInitial(() -> 0);
+    private ScheduledExecutorService turnTimerExecutor = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> currentTurnTimer;
+    private static final long TURN_TIMEOUT_SECONDS = 10000; // 60 segundos de timeout
+
 
     public int getCurrentPlayerIndex() {
         return currentPlayerIndex.get();
@@ -63,7 +71,7 @@ public class GameSession {
     public void removePartidaJuego() {
         partidaJuegoThreadLocal.remove();
     }
-    public GameSession(String gameId, ObjectMapper objectMapper,  PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository, PaisJPARepository paisRepository, ContinentJPARepository continentRepository, FronteraJPARepository fronteraRepository) {
+    public GameSession(String gameId, ObjectMapper objectMapper,  PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository, PaisJPARepository paisRepository, ContinentJPARepository continentRepository, FronteraJPARepository fronteraRepository, OkupaJPARepository okupaRepository) {
         this.gameId = gameId;
         this.objectMapper = objectMapper;
         this.partidaRepository = partidaRepository;
@@ -71,6 +79,7 @@ public class GameSession {
         this.paisRepository = paisRepository;
         this.continentRepository = continentRepository;
         this.fronteraRepository = fronteraRepository;
+        this.okupaRepository = okupaRepository;
     }
 
     public BlockingQueue<String> getInputQueue() {
@@ -104,6 +113,7 @@ public class GameSession {
         this.gameThread = new Thread(this::runGame);
         this.gameThread.setName("GameThread-" + gameId);
         this.gameThread.start();
+
     }
 
 
@@ -124,7 +134,6 @@ public class GameSession {
                     procesarMensaje(message);
                 }
             }
-            //TODO aqui miramos el que ha ganao y se anuncia
         } catch (InterruptedException e) {
             System.out.println("[GameThread] Interrupción recibida");
             Thread.currentThread().interrupt();
@@ -192,6 +201,7 @@ public class GameSession {
 
     private void handleMoverTropas(JugadorJuego jugadorActual, JsonNode json) {
         MoverTropasRQ rq = objectMapper.convertValue(json, MoverTropasRQ.class);
+        startTurnTimer();
         String desde = null;
         String hasta = null;
 
@@ -236,6 +246,7 @@ public class GameSession {
         rs.setResponse("partidaBC");
         rs.setPartida(partidaJuego);
         broadcast(toJson(rs));
+        PersistirPartida(partidaJuego);
     }
 
     private void sendError(JugadorJuego jugador, String mensaje) {
@@ -374,7 +385,7 @@ public class GameSession {
         prs.setResponse("partidaBC");
         prs.setCode(200);
         broadcast(toJson(prs));
-
+        PersistirPartida(p);
         // Verificar si hay ganador
         if (ganador()) {
             removePartidaJuego();
@@ -386,6 +397,7 @@ public class GameSession {
     private void handleAtacar(JugadorJuego jugadorActual, JsonNode json) {
         AtacarRQ rq = objectMapper.convertValue(json, AtacarRQ.class);
         JugadorJuego defensor = null;
+        startTurnTimer();
         for(JugadorJuego j : jugadoresEnPartida){
             if(j.getPaisesControlados().containsKey(rq.getPaisDefensor())){
                 defensor= j;
@@ -417,7 +429,7 @@ public class GameSession {
 
     private void handleReforzarPais(JugadorJuego jugadorActual, JsonNode json) {
         ReforzarPaisRQ rq = objectMapper.convertValue(json, ReforzarPaisRQ.class);
-
+        startTurnTimer();
 
         int tropasFinal=jugadorActual.getPaisesControlados().get(rq.getNom())+rq.getTropas();
         int tropasQuedan=jugadorActual.getTropasTurno()-rq.getTropas();
@@ -461,16 +473,19 @@ public class GameSession {
                     rs.getPartida().setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
+                    PersistirPartida(partidaActual);
                 }
                 else{
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
+                    PersistirPartida(partidaActual);
                 }
                 if(currentPhase==Estat.REFORC_TROPES&&jugadorActual.getTropasTurno()==0){
                     currentPhase = Estat.COMBAT;
                     partidaActual.setFase(currentPhase);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
+                    PersistirPartida(partidaActual);
                 }
 
 
@@ -501,6 +516,7 @@ public class GameSession {
 
     private void handleelegirpais(JugadorJuego jugadorActual, JsonNode data) {
         try {
+            startTurnTimer();
             SeleccionPaisRQ rq = objectMapper.treeToValue(data, SeleccionPaisRQ.class);
             Pais paisSeleccionado = paisRepository.findByNom(rq.getPais());
 
@@ -537,7 +553,7 @@ public class GameSession {
                     +j2.getId()+",\"nombre\":\"test3\",\"totalTropas\":40,\"tropasTurno\":0,\"paisesControlados\":{\"Ural\":1,\"Western Australia\":1,\"Afghanistan\":1,\"Northern Europe\":1,\"Siam\":1,\"Japan\":1,\"Egypt\":1,\"Madagascar\":1,\"Congo\":16,\"India\":1,\"Middle East\":1,\"Yakutsk\":1,\"Mongolia\":1,\"Irkutsk\":1,\"China\":1,\"Siberia\":1,\"Kamchatka\":1,\"South Africa\":1,\"Southern Europe\":5,\"East Africa\":1,\"Eastern Australia\":1},\"color\":\"VERMELL\",\"token\":\"d9dda8d9-2532-4c63-9ef7-00f01ee122d7\",\"continentesControlados\":null}],\"turno\":"+j1.getId()+",\"fase\":\"COMBAT\"},\"code\":200,\"response\":\"partidaBC\"}";
 
             broadcast(toJson(partidaRS));//toJson(partidaRS)
-
+            PersistirPartida(partidaActual);
 
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
@@ -577,7 +593,7 @@ public class GameSession {
     // Método iniciarFaseSeleccionPaises modificado
     private void iniciarFaseSeleccionPaises(List<Pais> paisesDisponibles, PartidaJuego partidaJuego) {
         currentPhase = Estat.COL_LOCAR_INICIAL;
-
+        startTurnTimer();
         PartidaRS p = new PartidaRS();
         p.setResponse("partidaBC");
         partidaJuego.setFase(currentPhase);
@@ -585,7 +601,7 @@ public class GameSession {
         p.setCode(200);
 
         broadcast(toJson(p));
-
+        PersistirPartida(partidaJuego);
         broadcastFaseInicialCompletada(partidaJuego);
     }
 
@@ -711,44 +727,6 @@ public class GameSession {
             System.err.println("Error al enviar mensaje a " + token + ": " + e.getMessage());
         }
     }
-
-    private void broadcastEstadoInicial() {
-        Map<String, Object> estado = new HashMap<>();
-        estado.put("evento", "INICIO_PARTIDA");
-        estado.put("jugadores", jugadoresEnPartida.stream()
-                .map(JugadorJuego::getNombre)
-                .collect(Collectors.toList()));
-        estado.put("mapa", territorioJugador);
-        broadcast(toJson(estado));
-    }
-
-    private void broadcastFaseInicialCompletada() {
-        Map<String, Object> mensaje = new HashMap<>();
-
-        PartidaJuego jj = new PartidaJuego();
-        // Agrupar territorios por jugador para facilitar el procesamiento en el cliente
-        Map<String, List<String>> territoriosPorJugador = new HashMap<>();
-        jj.setJugadores(jugadoresEnPartida);
-        for (JugadorJuego jugador : jugadoresEnPartida) {
-            List<String> territorios = territorioJugador.entrySet().stream()
-                    .filter(e -> e.getValue().equals(jugador.getToken()))
-                    .map(Map.Entry::getKey)
-                    .collect(Collectors.toList());
-
-            territoriosPorJugador.put(jugador.getNombre(), territorios);
-
-        }
-        PartidaRS rs = new PartidaRS();
-        rs.setCode(200);
-        rs.setResponse("partidaBC");
-        jj.setTurno(jugadoresEnPartida.get(0).getId());
-        jj.setJugadores(jugadoresEnPartida);
-        jj.setFase(Estat.COL_LOCAR_INICIAL);
-        rs.setPartida(jj);
-        System.out.println(toJson(rs));
-        broadcast(toJson(rs));
-    }
-
 
 
     private String toJson(Object object) {
@@ -885,6 +863,10 @@ public class GameSession {
 
 
     private void siguienteTurno() {
+
+        if (currentTurnTimer != null && !currentTurnTimer.isDone()) {
+            currentTurnTimer.cancel(false);
+        }
         // Rotar jugadores
         PartidaJuego p = getPartidaJuego();
 
@@ -905,11 +887,12 @@ public class GameSession {
                     partidaActual.setJugadores(jugadoresEnPartida);
                     rs.setPartida(partidaActual);
                     broadcast(toJson(rs));
-
+                    PersistirPartida(partidaActual);
 
             currentPhase=Estat.REFORC_TROPES;
         }
         if(!ganador()) {
+            startTurnTimer();
             PartidaJuego partidaActual = getPartidaJuego();
             partidaActual.setFase(currentPhase);
             partidaActual.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
@@ -918,6 +901,7 @@ public class GameSession {
             rs.setResponse("partidaBC");
             rs.setPartida(partidaActual);
             broadcast(toJson(rs));
+            PersistirPartida(partidaActual);
         }else{
             GanadorRS rs = new GanadorRS();
             rs.setCode(200);
@@ -984,22 +968,7 @@ public class GameSession {
         return fronterasCache.getOrDefault(territorio1, Collections.emptyList())
                 .contains(territorio2);
     }
-    private boolean validarAtaqueComplejo(JugadorJuego jugador, String desde, String hacia, int tropas) {
-        // 1. Validar propiedad
-        if (!territorioJugador.get(desde).equals(jugador.getToken())) return false;
 
-        // 2. Validar que no sea propio territorio
-        if (territorioJugador.get(hacia).equals(jugador.getToken())) return false;
-
-        // 3. Validar adyacencia
-        if (!sonTerritoriosAdyacentes(desde, hacia)) return false;
-
-        // 4. Validar cantidad de tropas
-        if (territorioTropas.get(desde) <= tropas) return false;
-
-        // 5. Validar mínimo de tropas (opcional)
-        return tropas >= 1;
-    }
     public void handleWebSocketMessage(WebSocket conn, String message) {
         String token = connectionToToken.get(conn);
         if (token != null) {
@@ -1011,21 +980,9 @@ public class GameSession {
     }
     public void next(){
         setCurrentPlayerIndex((getCurrentPlayerIndex() + 1) % jugadoresEnPartida.size());
+        startTurnTimer();
     }
-    public void perderPais(JugadorJuego jugador, String nombrePais) {
-        jugador.getPaisesControlados().remove(nombrePais);
 
-        // Verificar si perdió el control de algún continente
-        Pais paisPerdido = paisRepository.findByNom(nombrePais);
-        Continent continenteAfectado = paisPerdido.getContinent();
-
-        boolean aunControlaContinente = continenteAfectado.getPaisos().stream()
-                .allMatch(p -> jugador.getPaisesControlados().containsKey(p.getNom()));
-
-        if (!aunControlaContinente) {
-            jugador.getContinentesControlados().remove(continenteAfectado.getId());
-        }
-    }
     public boolean ganador() {
         for(JugadorJuego j : jugadoresEnPartida) {
             if(j.getPaisesControlados().size()== paisRepository.count()){
@@ -1055,5 +1012,51 @@ public class GameSession {
             jugadoresEnPartida.remove(j);
             }
         }
+    }
+
+    private void startTurnTimer() {
+        if (currentTurnTimer != null && !currentTurnTimer.isDone()) {
+            currentTurnTimer.cancel(false);
+        }
+        PartidaJuego pj = getPartidaJuego();
+        currentTurnTimer = turnTimerExecutor.schedule(() -> {
+            if (gameRunning&&(pj.getFase().equals(Estat.COMBAT)||pj.getFase().equals(Estat.RECOL_LOCACIO)||pj.getFase().equals(Estat.REFORC_TROPES))) {
+                System.out.println("Timeout - Pasando turno automáticamente");
+                siguienteTurno();
+            } else if (gameRunning&&(pj.getFase().equals(Estat.COL_LOCAR_INICIAL)||(pj.getFase().equals(Estat.REFORC_PAIS)))) {
+                System.out.println("Timeout - Pasando turno automáticamente");
+                next();
+                pj.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
+                PartidaRS rs = new PartidaRS();
+                rs.setPartida(pj);
+                rs.setResponse("partidaBC");
+                rs.setCode(200);
+                PersistirPartida(pj);
+                broadcast(toJson(rs));
+            }
+        }, TURN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    public void PersistirPartida(PartidaJuego pj){
+        Partida p = partidaRepository.findById(Integer.parseInt(gameId));
+        p.setEstado(false);
+        p.setEstat_torn(pj.getFase());
+        p.setTorn_playes_id((int)pj.getTurno());
+        partidaRepository.save(p);
+    }
+    public void PersistirOkupa(JugadorJuego jugador,String pais){
+        Jugadorp j = jugadorRepository.findById((int)jugador.getId());
+        Okupa o = new Okupa();
+        o.setJugador(j);
+        o.setPais(paisRepository.findByNom(pais));
+        okupaRepository.save(o);
+    }
+    public void QuitarOkupa(JugadorJuego j, String pais){
+        Jugadorp ju = jugadorRepository.findById((int)j.getId());
+        Pais p = paisRepository.findByNom(pais);
+        Okupa o = new Okupa();
+        o.setPais(p);
+        o.setJugador(ju);
+        okupaRepository.delete(o);
     }
 }
