@@ -68,7 +68,7 @@
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
-            <version>1.18.0</version>
+            <version>1.17.2</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-websocket -->
         <dependency>
@@ -94,7 +94,9 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
+            <version>3.4.5</version>
         </dependency>
+
 
         <!-- Dependencia para el servidor WebSocket de Java WebSocket -->
         <dependency>

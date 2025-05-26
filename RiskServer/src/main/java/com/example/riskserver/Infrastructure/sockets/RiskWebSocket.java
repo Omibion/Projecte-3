@@ -90,6 +90,7 @@ public class RiskWebSocket extends WebSocketServer {
 
                             // Get updated room and broadcast to remaining users
                             Sala updatedSala = salaService.getSala(gameId);
+                           // okupaJPARepository.deleteAll();
                             if (updatedSala != null && !updatedSala.getJugadores().isEmpty()) {
                                 UpdateUsersBC bc = new UpdateUsersBC();
                                 bc.setResponse("updateUserBC");

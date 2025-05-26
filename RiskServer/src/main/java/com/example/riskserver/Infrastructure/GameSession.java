@@ -117,8 +117,6 @@ public class GameSession {
     }
 
 
-
-    // Método runGame modificado
     private void runGame() {
         try {
             this.jugadoresEnPartida = buildJugador(gameId);
@@ -153,11 +151,6 @@ public class GameSession {
 
             JugadorJuego jugadorActual = getJugadorActual();
 
-            // Validar que el token coincide con el jugador del turno actual
-//            if (!jugadorActual.getToken().equals(token)) {
-//                sendToPlayer(token, "No es tu turno");
-//                return;
-//            }
 
             switch (request) {
                 case "seleccionarPaisRQ":
@@ -196,7 +189,27 @@ public class GameSession {
     }
 
     private void handletuneitoqueteveo(JugadorJuego jugadorActual, JsonNode json) {
+        PartidaJuego p = getPartidaJuego();
+        List<Pais> paisL=paisRepository.findAll();
+        p.getJugadores().get(0).getPaisesControlados().clear();
+        p.getJugadores().get(1).getPaisesControlados().clear();
+        territorioJugador.clear();
+        for (int i = 0; i < paisL.size(); i++) {
+            if(i<paisL.size()-2){
+                territorioJugador.put(paisL.get(i).getNom(),p.getJugadores().get(0).getToken());
+                p.getJugadores().get(0).getPaisesControlados().put(paisL.get(i).getNom(),10);
+            }else{
+                territorioJugador.put(paisL.get(i).getNom(),p.getJugadores().get(1).getToken());
+                p.getJugadores().get(1).getPaisesControlados().put(paisL.get(i).getNom(),1);
+            }
+        }
+        p.setFase(Estat.COMBAT);
+        PartidaRS rs = new PartidaRS();
+        rs.setPartida(p);
+        rs.setCode(200);
 
+        rs.setResponse("partidaBC");
+        broadcast(toJson(rs));
     }
 
     private void handleMoverTropas(JugadorJuego jugadorActual, JsonNode json) {
@@ -253,7 +266,7 @@ public class GameSession {
         ErrorRS ers = new ErrorRS();
         ers.setCode(500);
         ers.setMesage(mensaje);
-        ers.setResponse("ErrorRS");
+        ers.setResponse("errorRS");
         String json = toJson(ers);
         System.out.println(json);
         sendToPlayer(jugador.getToken(), json);
@@ -335,18 +348,17 @@ public class GameSession {
             // Transferir el país al atacante con al menos 1 tropa
             atacante.getPaisesControlados().put(rq.getPaisDefensor(), 1);
             atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante - 1); // mueve 1
-
             territorioJugador.remove(rq.getPaisDefensor());
             territorioJugador.put(rq.getPaisDefensor(), atacante.getToken());
-
             HasConquistadoRQ rqc = new HasConquistadoRQ();
             rqc.setConquistado(rq.getPaisDefensor());
             rqc.setAtacante(rq.getPaisAtacante());
             rqc.setResponse("hasConquistadoRS");
             rqc.setCode(200);
+            QuitarOkupa(defensor,rq.getPaisDefensor());
+            PersistirOkupa(atacante,rq.getPaisAtacante());
             sendToPlayer(atacante.getToken(), toJson(rqc));
         } else {
-            // No hubo conquista, solo se actualizan tropas
             defensor.getPaisesControlados().put(rq.getPaisDefensor(), nuevasTropasDefensor);
             atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante);
         }
@@ -416,7 +428,7 @@ public class GameSession {
             sendToPlayer(defensor.getToken(),toJson(rs));
         }else{
             ErrorRS errorRS = new ErrorRS();
-            errorRS.setResponse("error");
+            errorRS.setResponse("errorRS");
             errorRS.setMesage("No son paises contiguos");
             errorRS.setCode(407);
             System.out.println(errorRS);
@@ -492,7 +504,7 @@ public class GameSession {
 
             }else{
                 ErrorRS rs = new ErrorRS();
-                rs.setResponse("ErrorRS");
+                rs.setResponse("errorRS");
                 rs.setCode(401);
                 rs.setMesage("No tienes suficientes tropas disponibles para esta acción");
                 PlayerSession player = players.get(rq.getToken());
@@ -501,7 +513,7 @@ public class GameSession {
             }
         }else {
             ErrorRS rs = new ErrorRS();
-            rs.setResponse("ErrorRS");
+            rs.setResponse("errorRS");
             rs.setCode(402);
             rs.setMesage("El jugador no controla este pais");
             System.out.println(toJson(rs));
@@ -551,8 +563,9 @@ public class GameSession {
             JugadorJuego j2 =jugadoresEnPartida.get(1);
             String json = "{\"partida\":{\"jugadores\":[{\"id\":"+j1.getId()+",\"nombre\":\"test1\",\"totalTropas\":40,\"tropasTurno\":0,\"paisesControlados\":{\"Central America\":1,\"Argentina\":1,\"Northwest Territory\":1,\"Alberta\":1,\"Eastern United States\":1,\"Quebec\":1,\"Ukraine\":1,\"North Africa\":1,\"Scandinavia\":1,\"Iceland\":1,\"Western Europe\":20,\"Venezuela\":1,\"Great Britain\":1,\"New Guinea\":1,\"Brazil\":1,\"Alaska\":1,\"Western United States\":1,\"Ontario\":1,\"Peru\":1,\"Greenland\":1,\"Indonesia\":1},\"color\":\"BLAU\",\"token\":\"215fd24b-d682-43cd-a207-5bcec9eb4484\",\"continentesControlados\":null},{\"id\":"
                     +j2.getId()+",\"nombre\":\"test3\",\"totalTropas\":40,\"tropasTurno\":0,\"paisesControlados\":{\"Ural\":1,\"Western Australia\":1,\"Afghanistan\":1,\"Northern Europe\":1,\"Siam\":1,\"Japan\":1,\"Egypt\":1,\"Madagascar\":1,\"Congo\":16,\"India\":1,\"Middle East\":1,\"Yakutsk\":1,\"Mongolia\":1,\"Irkutsk\":1,\"China\":1,\"Siberia\":1,\"Kamchatka\":1,\"South Africa\":1,\"Southern Europe\":5,\"East Africa\":1,\"Eastern Australia\":1},\"color\":\"VERMELL\",\"token\":\"d9dda8d9-2532-4c63-9ef7-00f01ee122d7\",\"continentesControlados\":null}],\"turno\":"+j1.getId()+",\"fase\":\"COMBAT\"},\"code\":200,\"response\":\"partidaBC\"}";
-
-            broadcast(toJson(partidaRS));//toJson(partidaRS)
+            Okupa o = new Okupa(jugadorRepository.findById((int)jugadorActual.getId()),paisRepository.findByNom(rq.getPais()));
+            okupaRepository.save(o);
+            broadcast(toJson(partidaRS));
             PersistirPartida(partidaActual);
 
         } catch (JsonProcessingException e) {
@@ -995,7 +1008,6 @@ public class GameSession {
                 broadcast(toJson(rs));
                 gameRunning=false;
                 jugadoresEnPartida.clear();
-
                 return true;
             }
         }

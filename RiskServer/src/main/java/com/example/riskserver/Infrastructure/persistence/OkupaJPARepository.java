@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface OkupaJPARepository extends JpaRepository<Okupa, Integer> {
     public Okupa findById(int id);
+    //public  Okupa findByIdJugadorAndIdPais(int jugador, int pais);
 }
