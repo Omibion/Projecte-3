@@ -3,6 +3,7 @@ package com.example.riskserver;
 import com.example.riskserver.Infrastructure.GameManager;
 import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
 import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.UserJpaRepository;
 import com.example.riskserver.Infrastructure.sockets.RiskWebSocket;
 import com.example.riskserver.aplication.service.LoginService.LoginService;
 import com.example.riskserver.aplication.service.SalaService.SalaService;
@@ -25,9 +26,10 @@ public class RiskServerApplication {
                                              ObjectMapper objectMapper,
                                              GameManager gameManager,
                                              JugadorpJpaRepository jugadorpJpaRepository,
-                                             PartidaJpaRepository partidaJpaRepository) {
+                                             PartidaJpaRepository partidaJpaRepository,
+                                             UserJpaRepository userJpaRepository) {
         InetSocketAddress port = new InetSocketAddress(29563);
-        RiskWebSocket server = new RiskWebSocket(port, loginService,salaService,objectMapper,gameManager,jugadorpJpaRepository,partidaJpaRepository );
+        RiskWebSocket server = new RiskWebSocket(port, loginService,salaService,objectMapper,gameManager,jugadorpJpaRepository,partidaJpaRepository, userJpaRepository );
         server.start();
         return server;
     }

@@ -1,9 +1,11 @@
 package com.example.riskserver.Infrastructure.sockets;
 
 import com.example.riskserver.Infrastructure.GameManager;
+import com.example.riskserver.Infrastructure.GameSession;
 import com.example.riskserver.Infrastructure.PlayerSession;
 import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
 import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.UserJpaRepository;
 import com.example.riskserver.aplication.dto.*;
 import com.example.riskserver.aplication.service.LoginService.LoginService;
 import com.example.riskserver.aplication.service.SalaService.SalaService;
@@ -13,30 +15,26 @@ import com.example.riskserver.domain.model.Sala;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.catalina.filters.RemoteIpFilter;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
 import org.springframework.stereotype.Component;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class RiskWebSocket extends WebSocketServer {
-    // Map of token → player session
+
     private final Map<String, PlayerSession> tokenToSession = new ConcurrentHashMap<>();
 
-    // Map of connection → token (to know which token each WebSocket uses)
+
     private final Map<WebSocket, String> connectionToToken = new ConcurrentHashMap<>();
 
-    // Map of token → game room id
     private final Map<String, Integer> tokenToGame = new ConcurrentHashMap<>();
 
-    // Map of userId → token
     private final Map<Integer, String> userToToken = new ConcurrentHashMap<>();
 
     private final LoginService loginService;
@@ -45,6 +43,7 @@ public class RiskWebSocket extends WebSocketServer {
     private final GameManager gameManager;
     private final JugadorpJpaRepository  jugadorpJpaRepository;
     private final PartidaJpaRepository partidaJpaRepository;
+    private final UserJpaRepository userJpaRepository;
 
     public RiskWebSocket(InetSocketAddress address,
                          LoginService loginService,
@@ -52,7 +51,8 @@ public class RiskWebSocket extends WebSocketServer {
                          ObjectMapper objectMapper,
                          GameManager gameManager,
                          JugadorpJpaRepository jugadorpJpaRepository,
-                         PartidaJpaRepository partidaJpaRepository) {
+                         PartidaJpaRepository partidaJpaRepository,
+                         UserJpaRepository userJpaRepository) {
         super(address);
         this.loginService = loginService;
         this.salaService = salaService;
@@ -60,6 +60,7 @@ public class RiskWebSocket extends WebSocketServer {
         this.gameManager = gameManager;
         this.jugadorpJpaRepository = jugadorpJpaRepository;
         this.partidaJpaRepository = partidaJpaRepository;
+        this.userJpaRepository = userJpaRepository;
     }
 
     @Override
@@ -70,46 +71,56 @@ public class RiskWebSocket extends WebSocketServer {
 
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
-        String clientId = conn.getRemoteSocketAddress().toString();
         String token = connectionToToken.remove(conn);
+        if (token == null) return;
 
-        if (token != null) {
-            PlayerSession session = tokenToSession.remove(token);
-            Integer gameId = tokenToGame.remove(token);
+        Integer gameId = tokenToGame.remove(token);
+        Integer userId = null;
 
-            // Find and remove user id from userToToken
-            for (Map.Entry<Integer, String> entry : userToToken.entrySet()) {
-                if (entry.getValue().equals(token)) {
-                    Integer userId = entry.getKey();
-                    userToToken.remove(userId);
-
-                    // If user was in a game room, notify others about departure
-                    if (gameId != null) {
-                        try {
-                            salaService.leaveUserFromSala(gameId, userId);
-
-                            // Get updated room and broadcast to remaining users
-                            Sala updatedSala = salaService.getSala(gameId);
-                           // okupaJPARepository.deleteAll();
-                            if (updatedSala != null && !updatedSala.getJugadores().isEmpty()) {
-                                UpdateUsersBC bc = new UpdateUsersBC();
-                                bc.setResponse("updateUserBC");
-                                bc.setCode(200);
-                                bc.setSala(updatedSala);
-
-                                broadcastToSala(gameId, bc);
-                            }
-                        } catch (Exception e) {
-                            System.err.println("Error handling disconnect from room: " + e.getMessage());
-                        }
-                    }
-                    break;
-                }
+        for (Iterator<Map.Entry<Integer, String>> it = userToToken.entrySet().iterator(); it.hasNext();) {
+            Map.Entry<Integer, String> entry = it.next();
+            if (entry.getValue().equals(token)) {
+                userId = entry.getKey();
+                it.remove();
+                break;
             }
         }
 
-        System.out.println("User disconnected: " + clientId);
+        if (gameId != null && userId != null) {
+            try {
+
+                GameManager gameManager = GameManager.getInstance();
+                Optional<GameSession> gameSessionOpt = gameManager.getGame(gameId.toString());
+
+                if (gameSessionOpt.isPresent()) {
+                    GameSession session = gameSessionOpt.get();
+                    session.sefue(token);
+                } else {
+                    System.err.println("No se encontró la sesión de juego para la partida " + gameId);
+                }
+
+                List<Jugadorp> remaining = salaService.leaveUserFromSala(gameId, userId);
+
+                if (remaining.isEmpty()) {
+                    Partida p = partidaJpaRepository.findById(gameId).orElse(null);
+                    if (p != null) {
+                        p.setEstado(false);
+                        partidaJpaRepository.delete(p);
+                        System.out.println("Partida eliminada: " + gameId);
+                    }
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error en onClose: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        System.out.println("Desconexión de usuario: " + conn.getRemoteSocketAddress());
     }
+
+
+
 
     @Override
     public void onMessage(WebSocket conn, String message) {
@@ -178,8 +189,8 @@ public class RiskWebSocket extends WebSocketServer {
             return;
         }
 
-        // Delegar el mensaje al GameManager/GameSession correspondiente
-        gameManager.handleIncomingMessage(conn,message+"");//habia un .assText pero no iba
+
+        gameManager.handleIncomingMessage(conn,message+"");
     }
 
     private void handleUpdateSala(WebSocket conn, JsonNode jsonNode) throws JsonProcessingException {
@@ -195,7 +206,6 @@ public class RiskWebSocket extends WebSocketServer {
         }
         broadcastToSala(rq.getSala().getId(), bc);
 
-        // Verifica si todos los jugadores están listos
         if (rq.getSala().getJugadores().size() > 0) {
             int c = 0;
             for (Jugadorp j : rq.getSala().getJugadores()) {
@@ -204,7 +214,7 @@ public class RiskWebSocket extends WebSocketServer {
                 }
             }
 
-            // Si todos los jugadores están listos, iniciar la partida
+
             if (c == rq.getSala().getJugadores().size()) {
                 System.out.println("Todos los jugadores están listos. Iniciando partida...");
                 gameManager.createGame(rq.getSala().getId()+"");
@@ -218,7 +228,7 @@ public class RiskWebSocket extends WebSocketServer {
 
 
 
-                // Notificar a los clientes
+
                 gameManager.startGame(rq.getSala().getId()+"", jugadoresASala);
             }
         }
@@ -233,12 +243,21 @@ public class RiskWebSocket extends WebSocketServer {
         sendResponse(conn, rs, rq.getToken());
         tokenToGame.remove(rq.getToken());
         Sala updatedSala = salaService.getSala(rq.getIdSala());
+        List <Jugadorp> jugs = jugadorpJpaRepository.findByPartida(partidaJpaRepository.findById(rq.getIdSala()));
+       Jugadorp jug = null;
+        for(Jugadorp j:jugs){
+            if(j.getUser_id()==rq.getIdUsuari()){
+                jug=j;
+            }
+        }
+        updatedSala.getJugadores().remove(jug);
         salaService.leaveUserFromSala(rq.getIdSala(), rq.getIdUsuari());
+        Sala updatedSala1 = salaService.getSala(rq.getIdSala());
         if (updatedSala != null && !updatedSala.getJugadores().isEmpty()) {
             UpdateUsersBC bc = new UpdateUsersBC();
             bc.setResponse("updateUserBC");
             bc.setCode(200);
-            bc.setSala(updatedSala);
+            bc.setSala(updatedSala1);
             broadcastToSala(rq.getIdSala(), bc);
         }
     }
@@ -276,7 +295,6 @@ public class RiskWebSocket extends WebSocketServer {
             Sala nuevaSala = salaService.createSala(sala, rq.getUser(),rq.getToken());
             gameManager.createGame("sala-" + nuevaSala.getId());
 
-            // Update token to game mapping
             tokenToGame.put(rq.getToken(), nuevaSala.getId());
 
             CreateSalaRS rs = new CreateSalaRS();
@@ -302,7 +320,6 @@ public class RiskWebSocket extends WebSocketServer {
                 salas = new ArrayList<>();
             }
 
-            // Clear sensitive player data before sending
             for (Sala s : salas) {
                 if (s.getJugadores() == null) {
                     s.setJugadores(new ArrayList<>());
@@ -338,12 +355,8 @@ public class RiskWebSocket extends WebSocketServer {
                 return;
             }
 
-            // Generate token
             String token = java.util.UUID.randomUUID().toString();
-
             loginRS.setToken(token);
-
-            // Store session information
             PlayerSession player = new PlayerSession(token, conn);
             tokenToSession.put(token, player);
             connectionToToken.put(conn, token);
@@ -399,14 +412,12 @@ public class RiskWebSocket extends WebSocketServer {
             String jsonMessage = objectMapper.writeValueAsString(messageObject);
             List<String> tokensInSala = new ArrayList<>();
 
-            // Find all tokens associated with this room
             for (Map.Entry<String, Integer> entry : tokenToGame.entrySet()) {
                 if (entry.getValue() == salaId) {
                     tokensInSala.add(entry.getKey());
                 }
             }
 
-            // Send message to all users in the room
             for (String token : tokensInSala) {
                 PlayerSession session = tokenToSession.get(token);
                 if (session != null && session.getWebSocket().isOpen()) {

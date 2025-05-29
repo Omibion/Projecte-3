@@ -1,9 +1,6 @@
 package com.example.riskserver.aplication.service.SalaService;
 
-import com.example.riskserver.Infrastructure.persistence.JugadorpJpaRepository;
-import com.example.riskserver.Infrastructure.persistence.PartidaJpaRepository;
-import com.example.riskserver.Infrastructure.persistence.SalasJpaRepository;
-import com.example.riskserver.Infrastructure.persistence.UserJpaRepository;
+import com.example.riskserver.Infrastructure.persistence.*;
 import com.example.riskserver.aplication.service.SalaService.builder.JugadorpBuilder;
 import com.example.riskserver.aplication.service.SalaService.builder.SalaBuilder;
 import com.example.riskserver.domain.model.Jugadorp;
@@ -11,7 +8,9 @@ import com.example.riskserver.domain.model.Partida;
 import com.example.riskserver.domain.model.Sala;
 import com.example.riskserver.Infrastructure.GameManager;
 import com.example.riskserver.domain.model.User;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -24,11 +23,13 @@ public class SalaService {
     private final JugadorpJpaRepository jugadorpJpaRepository;
     private final UserJpaRepository userJpaRepository;
     private final PartidaJpaRepository partidaJpaRepository;
+    private final OkupaJPARepository okupaJPARepository;
     public SalaService(SalasJpaRepository salasJpaRepository, JugadorpJpaRepository jugadorpJpaRepository, UserJpaRepository userJpaRepository,
-    PartidaJpaRepository partidaJpaRepository) {this.salasJpaRepository = salasJpaRepository;
+    PartidaJpaRepository partidaJpaRepository,OkupaJPARepository okupaJPARepository) {this.salasJpaRepository = salasJpaRepository;
     this.jugadorpJpaRepository = jugadorpJpaRepository;
     this.userJpaRepository = userJpaRepository;
-    this.partidaJpaRepository = partidaJpaRepository;}
+    this.partidaJpaRepository = partidaJpaRepository;
+    this.okupaJPARepository = okupaJPARepository;}
     public List<Sala> getAllSalas(){
         List<Sala> salas = new ArrayList<Sala>();
         List <Partida> p = salasJpaRepository.findByEstado(false);
@@ -44,7 +45,6 @@ public class SalaService {
 
 
     public Sala createSala(Sala sala, User user, String token) {
-        // Crear y persistir partida
         Partida p = new Partida();
         p.setNom(sala.getNombre());
         p.setMax_players(sala.getMaxPlayers());
@@ -59,23 +59,26 @@ public class SalaService {
         List <Jugadorp> jugs = new ArrayList<>();
         jugs.add(j);
 
-        // Crear la Sala desde la Partida
+
         Sala nuevaSala = SalaBuilder.build(p, jugs);
 
-        // Crear GameSession para esta partida
+
         GameManager.getInstance().createGame(p.getId() + "");
 
         return nuevaSala;
     }
 
     public Sala getSala(int id) {
-
-        Sala sala = new Sala();
         Partida p = salasJpaRepository.findById(id);
+
+        if (p == null) {
+            throw new EntityNotFoundException("No se encontró la partida con id " + id);
+        }
+
         List<Jugadorp> j = jugadorpJpaRepository.findByPartida(p);
-       sala= SalaBuilder.build(p,j);
-        return sala;
+        return SalaBuilder.build(p, j);
     }
+
 
     public Sala addUserToSala(int sala, int user, String token) {
         Partida p = salasJpaRepository.findById(sala);
@@ -91,21 +94,27 @@ public class SalaService {
         return s;
     }
 
-    public List<Jugadorp> leaveUserFromSala(int sala, int user) {
-        Partida p = salasJpaRepository.findById(sala);
-        List <Jugadorp> j = salasJpaRepository.findByPartidaId(sala);
-        for(Jugadorp jugadorp : j){
-            if(jugadorp.getUser_id()==user){
-                j.remove(jugadorp);
-                jugadorpJpaRepository.delete(jugadorp);
-                break;
+    @Transactional
+    public List<Jugadorp> leaveUserFromSala(int salaId, int userId) {
 
+        Partida partida = salasJpaRepository.findById(salaId);
+        List<Jugadorp> jugadores = salasJpaRepository.findByPartidaId(salaId);
+
+        Jugadorp jugadorASacar = null;
+        for (Jugadorp jp : jugadores) {
+            if (jp.getUser_id() == userId) {
+                jugadorASacar = jp;
+                break;
             }
         }
-        if (j.size()<1){
-            salasJpaRepository.delete(p);
+        if (jugadorASacar != null) {
+            okupaJPARepository.deleteByJugadorId(jugadorASacar.getId());
+            jugadores.remove(jugadorASacar);
+            jugadorpJpaRepository.delete(jugadorASacar);
         }
-        return j;
+        if (jugadores.isEmpty()) {
+            salasJpaRepository.delete(partida);
+        }
+        return jugadores;
     }
-
 }

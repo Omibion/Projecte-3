@@ -32,15 +32,14 @@ public class GameSession {
     private final OkupaJPARepository okupaRepository;
     private final ContinentJPARepository continentRepository;
     private final FronteraJPARepository fronteraRepository;
-    private final Map<String, CompletableFuture<String>> seleccionesPendientes = new ConcurrentHashMap<>();
     private Estat currentPhase = Estat.WAIT;
     private final Map<WebSocket, String> connectionToToken = new ConcurrentHashMap<>();
-    // Estado del juego
+
     private List<JugadorJuego> jugadoresEnPartida;
     private final ThreadLocal<Integer> currentPlayerIndex = ThreadLocal.withInitial(() -> 0);
     private ScheduledExecutorService turnTimerExecutor = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> currentTurnTimer;
-    private static final long TURN_TIMEOUT_SECONDS = 10000; // 60 segundos de timeout
+    private static final long TURN_TIMEOUT_SECONDS = 10000;
 
 
     public int getCurrentPlayerIndex() {
@@ -59,7 +58,7 @@ public class GameSession {
         partida.setJugadores(jugadoresEnPartida);
         return partida;
     });
-    // Métodos de acceso al ThreadLocal
+
     public PartidaJuego getPartidaJuego() {
         return partidaJuegoThreadLocal.get();
     }
@@ -101,7 +100,7 @@ public class GameSession {
     public void addPlayer(PlayerSession player) {
         players.put(player.getPlayerId(), player);
         sessionToPlayer.put(player.getWebSocket(), player.getPlayerId());
-        connectionToToken.put(player.getWebSocket(), player.getPlayerId()); // Añade esta línea
+        connectionToToken.put(player.getWebSocket(), player.getPlayerId());
     }
 
     public void startGame(HashMap<String, PlayerSession> jugadores) {
@@ -120,7 +119,7 @@ public class GameSession {
     private void runGame() {
         try {
             this.jugadoresEnPartida = buildJugador(gameId);
-            // Inicialización de la partida para este hilo
+
             cargarFronterasEnMemoria();
             PartidaJuego partidaJuego = getPartidaJuego();
             inicializarTablero(partidaJuego);
@@ -139,7 +138,7 @@ public class GameSession {
             System.err.println("[GameThread] Error crítico: " + e.getMessage());
             e.printStackTrace();
         } finally {
-            removePartidaJuego(); // Limpieza
+            removePartidaJuego();
             System.out.println("[GameThread] Finalizado para gameId: " + gameId);
         }
     }
@@ -218,7 +217,6 @@ public class GameSession {
         String desde = null;
         String hasta = null;
 
-        // 1) Comprobar que controla ambos países
         for (String pais : jugadorActual.getPaisesControlados().keySet()) {
             if (rq.getPaisOrigen().equals(pais)) {
                 desde = pais;
@@ -231,7 +229,6 @@ public class GameSession {
             sendError(jugadorActual, "Debes controlar tanto el país de origen como el de destino");
         }
 
-        // 2) Validar ruta terrestre
         if (!validarRutaTerrestre(jugadorActual.getToken(), desde, hasta, new HashSet<>())) {
             sendError(jugadorActual, "No hay ruta terrestre válida entre " + desde + " y " + hasta);
             return;
@@ -241,17 +238,14 @@ public class GameSession {
         int tropasMover  = rq.getNumTropas();
         int tropasDestino = jugadorActual.getPaisesControlados().getOrDefault(hasta, 0);
 
-        // 3) Verificar que no deje <1 tropa en el origen
         if (tropasOrigen - tropasMover < 1) {
             sendError(jugadorActual, "Las tropas del país de origen no pueden ser menos de 1");
             return;
         }
 
-        // 4) Actualizar conteos
         jugadorActual.getPaisesControlados().put(desde, tropasOrigen - tropasMover);
         jugadorActual.getPaisesControlados().put(hasta, tropasDestino + tropasMover);
 
-        // 5) Enviar estado de la partida
         PartidaRS rs = new PartidaRS();
         PartidaJuego partidaJuego = getPartidaJuego();
         partidaJuego.setJugadores(jugadoresEnPartida);
@@ -278,7 +272,7 @@ public class GameSession {
         ResultadoAtaqueRS rrs = new ResultadoAtaqueRS();
         JugadorJuego atacante = null;
 
-        // Buscar al atacante real desde la lista de jugadores
+
         for (JugadorJuego j : jugadoresEnPartida) {
             if (j.getPaisesControlados().containsKey(rq.getPaisAtacante())) {
                 atacante = j;
@@ -290,14 +284,10 @@ public class GameSession {
             System.err.println("No se encontró atacante para el país: " + rq.getPaisAtacante());
             return;
         }
-
-        // Generar dados ataque
         List<Integer> dadosAtaque = new ArrayList<>();
         for (int i = 0; i < rq.getNumTropasAtaque(); i++) {
             dadosAtaque.add(new Random().nextInt(6) + 1);
         }
-
-        // Generar dados defensa
         List<Integer> dadosDefensa = new ArrayList<>();
         for (int i = 0; i < rq.getNumTropasDefensa(); i++) {
             dadosDefensa.add(new Random().nextInt(6) + 1);
@@ -317,8 +307,6 @@ public class GameSession {
                 tropasPerdidasDefensor++;
             }
         }
-
-        // Actualizar tropas
         int tropasAtacanteActual = atacante.getPaisesControlados().get(rq.getPaisAtacante());
         int nuevasTropasAtacante = tropasAtacanteActual - tropasPerdidasAtacante;
 
@@ -342,12 +330,12 @@ public class GameSession {
         defensor.setTotalTropas(defensor.getTotalTropas() - tropasPerdidasDefensor);
 
         if (nuevasTropasDefensor <= 0) {
-            // Conquista
+
             defensor.getPaisesControlados().remove(rq.getPaisDefensor());
 
-            // Transferir el país al atacante con al menos 1 tropa
+
             atacante.getPaisesControlados().put(rq.getPaisDefensor(), 1);
-            atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante - 1); // mueve 1
+            atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante - 1);
             territorioJugador.remove(rq.getPaisDefensor());
             territorioJugador.put(rq.getPaisDefensor(), atacante.getToken());
             HasConquistadoRQ rqc = new HasConquistadoRQ();
@@ -363,7 +351,6 @@ public class GameSession {
             atacante.getPaisesControlados().put(rq.getPaisAtacante(), nuevasTropasAtacante);
         }
 
-        // Actualizar jugadores en lista (por referencia no es necesario, pero si clonas objetos, sí)
         for (int i = 0; i < jugadoresEnPartida.size(); i++) {
             JugadorJuego j = jugadoresEnPartida.get(i);
             if (j.getToken().equals(defensor.getToken())) {
@@ -372,8 +359,10 @@ public class GameSession {
                 jugadoresEnPartida.set(i, atacante);
             }
         }
+        if(defensor.getPaisesControlados().size()==0){
+            perdedor(defensor);
+        }
 
-        // Resultado del ataque para ambos jugadores
         rrs.setDadosAtaque(dadosAtaque);
         rrs.setDadosDefensa(dadosDefensa);
         rrs.setNumTropasAtaque(rq.getNumTropasAtaque());
@@ -389,7 +378,6 @@ public class GameSession {
         sendToPlayer(atacante.getToken(), jsonRS);
         sendToPlayer(defensor.getToken(), jsonRS);
 
-        // Enviar estado actualizado a todos
         PartidaRS prs = new PartidaRS();
         PartidaJuego p = getPartidaJuego();
         p.setJugadores(jugadoresEnPartida);
@@ -398,7 +386,6 @@ public class GameSession {
         prs.setCode(200);
         broadcast(toJson(prs));
         PersistirPartida(p);
-        // Verificar si hay ganador
         if (ganador()) {
             removePartidaJuego();
         }
@@ -433,7 +420,7 @@ public class GameSession {
             errorRS.setCode(407);
             System.out.println(errorRS);
             System.out.println(toJson(errorRS));
-            sendToPlayer(defensor.getToken(),toJson(errorRS));
+            sendToPlayer(jugadorActual.getToken(),toJson(errorRS));
         }
 
     }
@@ -477,8 +464,11 @@ public class GameSession {
                             JugadorJuego j=jugadoresEnPartida.get(i);
                             j.setTotalTropas(j.getTotalTropas()+calcularTropasInicioTurno(j));
                             j.setTropasTurno(calcularTropasInicioTurno(j));
-                            j.setTotalTropas(j.getTotalTropas()+calcularBonusContinentes(j));
-                            j.setTropasTurno(j.getTropasTurno()+calcularBonusContinentes(j));
+                            int totalTropas=j.getTotalTropas();
+                            int totalTropasTurno=j.getTropasTurno();
+                            int bonus = calcularBonusContinentes(j);
+                            j.setTotalTropas(totalTropas+bonus);
+                            j.setTropasTurno(totalTropasTurno+bonus);
                             jugadoresEnPartida.set(i, j);
                         }
                        partidaActual.setJugadores(jugadoresEnPartida);
@@ -532,7 +522,7 @@ public class GameSession {
             SeleccionPaisRQ rq = objectMapper.treeToValue(data, SeleccionPaisRQ.class);
             Pais paisSeleccionado = paisRepository.findByNom(rq.getPais());
 
-            // Actualiza el estado del juego en el hilo actual
+
             PartidaJuego partidaActual = getPartidaJuego();
             jugadorActual.getPaisesControlados().put(paisSeleccionado.getNom(), 1);
 
@@ -540,7 +530,7 @@ public class GameSession {
             territorioTropas.put(paisSeleccionado.getNom(), 1);
             jugadorActual.setTropasTurno(jugadorActual.getTropasTurno() - 1);
 
-            // Actualiza y envía el estado de la partida
+
             partidaActual.setTurno(jugadoresEnPartida.get(getCurrentPlayerIndex()).getId());
 
 
@@ -578,13 +568,13 @@ public class GameSession {
         int intentos = 0;
 
         do {
-            next(); // avanza al siguiente jugador
+            next();
             intentos++;
         } while (jugadoresEnPartida.get(getCurrentPlayerIndex()).getTropasTurno() <= 0 && intentos < totalJugadores);
     }
 
 
-    // Método inicializarTablero modificado
+
     private void inicializarTablero(PartidaJuego partidaJuego) {
         territorioJugador.clear();
         territorioTropas.clear();
@@ -603,7 +593,7 @@ public class GameSession {
         iniciarFaseSeleccionPaises(paisesDisponibles, partidaJuego);
     }
 
-    // Método iniciarFaseSeleccionPaises modificado
+
     private void iniciarFaseSeleccionPaises(List<Pais> paisesDisponibles, PartidaJuego partidaJuego) {
         currentPhase = Estat.COL_LOCAR_INICIAL;
         startTurnTimer();
@@ -618,7 +608,6 @@ public class GameSession {
         broadcastFaseInicialCompletada(partidaJuego);
     }
 
-    // Método broadcastFaseInicialCompletada modificado
     private void broadcastFaseInicialCompletada(PartidaJuego partidaJuego) {
         Map<String, List<String>> territoriosPorJugador = new HashMap<>();
 
@@ -640,78 +629,10 @@ public class GameSession {
         broadcast(toJson(rs));
     }
 
-    private Pais esperarSeleccionPais(JugadorJuego jugador) {
-        CompletableFuture<String> seleccionFuture = new CompletableFuture<>();
-        seleccionesPendientes.put(jugador.getToken(), seleccionFuture);
-
-        try {
-            // Espera activamente procesando mensajes hasta que llegue la selección
-            while (true) {
-                String message = inputQueue.poll(60, TimeUnit.SECONDS);
-                if (message == null) {
-                    break; // Timeout
-                }
-
-                try {
-                    JsonNode json = objectMapper.readTree(message);
-                    if (json.has("token") && json.get("token").asText().equals(jugador.getToken())) {
-                        if (json.has("request") && "seleccionarPaisRQ".equals(json.get("request").asText())) {
-                            return paisRepository.findByNom(json.get("data").get("pais").asText());
-                        }
-                    }
-                } catch (Exception e) {
-                    // Mensaje no válido, continuar esperando
-                    continue;
-                }
-            }
-
-            // Timeout - seleccionar aleatorio
-            return seleccionarPaisAleatorio(jugador);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return seleccionarPaisAleatorio(jugador);
-        } finally {
-            seleccionesPendientes.remove(jugador.getToken());
-        }
-    }
-
-    private Pais seleccionarPaisAleatorio(JugadorJuego jugador) {
-        List<Pais> disponibles = paisRepository.findAll().stream()
-                .filter(p -> !territorioJugador.containsKey(p.getNom()))
-                .collect(Collectors.toList());
-
-        if (!disponibles.isEmpty()) {
-            return disponibles.get(new Random().nextInt(disponibles.size()));
-        }
-        throw new IllegalStateException("No hay países disponibles para seleccionar");
-    }
-
-    private void handleTurno(JugadorJuego jugadorActual, JsonNode data){
-
-    }
-
-    private void handleSeleccionPais(WebSocket conn, JsonNode jsonNode) {
-        String token = connectionToToken.get(conn);
-        if (token == null) return;
-
-        if (currentPhase != Estat.COL_LOCAR_INICIAL) {
-            sendError(conn, "No es momento de seleccionar países", token);
-            return;
-        }
-
-        String nombrePais = jsonNode.get("pais").asText();
-        CompletableFuture<String> future = seleccionesPendientes.get(token);
-
-        if (future != null) {
-            future.complete(nombrePais);
-            seleccionesPendientes.remove(token);
-        }
-    }
 
     private void cargarFronterasEnMemoria() {
-        // Precargar todas las fronteras para validaciones rápidas
         List<Frontera> todasFronteras = fronteraRepository.findAll();
-        Map<String, List<String>> tempCache = new HashMap<>(); // Temporal para carga
+        Map<String, List<String>> tempCache = new HashMap<>();
 
         for (Frontera frontera : todasFronteras) {
             Pais pais1 = frontera.getPais1();
@@ -721,7 +642,6 @@ public class GameSession {
             tempCache.computeIfAbsent(pais2.getNom(), k -> new ArrayList<>()).add(pais1.getNom());
         }
 
-        // Asignación atómica al cache final
         this.fronterasCache = new ConcurrentHashMap<>(tempCache);
     }
 
@@ -773,13 +693,97 @@ public class GameSession {
 
     public void removePlayer(WebSocket socket) {
         String playerId = sessionToPlayer.remove(socket);
-        if (playerId != null) {
-            players.remove(playerId);
-            broadcast("Jugador " + playerId + " ha abandonado la partida");
+        connectionToToken.remove(socket);
 
-            if (players.isEmpty()) {
-                stopGame();
+        if (playerId != null) {
+            PlayerSession disconnectedPlayer = players.remove(playerId);
+
+            Optional<JugadorJuego> jugadorDesconectado = jugadoresEnPartida.stream()
+                    .filter(j -> j.getToken().equals(playerId))
+                    .findFirst();
+
+            if (jugadorDesconectado.isPresent()) {
+                JugadorJuego jugador = jugadorDesconectado.get();
+
+                System.out.println("Jugador desconectado: " + jugador.getNombre() + " (" + playerId + ")");
+
+                boolean eraElTurnoDelJugador = (getPartidaJuego().getTurno() == jugador.getId());
+
+
+                jugador.getPaisesControlados().replaceAll((pais, tropas) -> {
+                    territorioTropas.put(pais, 1);
+                    return 1;
+                });
+
+
+                jugador.setTotalTropas(jugador.getPaisesControlados().size());
+                jugador.setTropasTurno(0);
+
+
+                for (int i = 0; i < jugadoresEnPartida.size(); i++) {
+                    if (jugadoresEnPartida.get(i).getToken().equals(playerId)) {
+                        jugadoresEnPartida.set(i, jugador);
+                        break;
+                    }
+                }
+                if (eraElTurnoDelJugador) {
+                    System.out.println("Era el turno del jugador desconectado, avanzando turno...");
+                    siguienteTurno();
+                } else {
+                    PartidaJuego partidaActual = getPartidaJuego();
+                    partidaActual.setJugadores(jugadoresEnPartida);
+
+                    PartidaRS partidaRS = new PartidaRS();
+                    partidaRS.setPartida(partidaActual);
+                    partidaRS.setResponse("partidaBC");
+                    partidaRS.setCode(200);
+
+                    broadcast(toJson(partidaRS));
+                    PersistirPartida(partidaActual);
+                }
+
+
+                verificarCondicionesFinJuego();
+
+                System.out.println("Jugador " + jugador.getNombre() + " procesado correctamente. Jugadores restantes: " + players.size());
             }
+        }
+    }
+
+
+
+    private void verificarCondicionesFinJuego() {
+        int jugadoresConectados = players.size();
+        int jugadoresEnJuego = jugadoresEnPartida.size();
+
+        System.out.println("Verificando condiciones: " + jugadoresConectados + " conectados, " + jugadoresEnJuego + " en juego");
+
+        if (jugadoresConectados <= 1) {
+
+            if (jugadoresConectados == 1) {
+
+                JugadorJuego ganador = jugadoresEnPartida.stream()
+                        .filter(j -> players.containsKey(j.getToken()))
+                        .findFirst()
+                        .orElse(null);
+
+                if (ganador != null) {
+                    GanadorRS rs = new GanadorRS();
+                    rs.setCode(200);
+                    rs.setResponse("ganadorRS");
+                    rs.setNombre(ganador.getNombre());
+                    rs.setId(ganador.getId());
+                    rs.setToken(ganador.getToken());
+                    broadcast(toJson(rs));
+                }
+            }
+
+
+            System.out.println("Terminando juego por falta de jugadores");
+            stopGame();
+        } else if (jugadoresConectados == 2 && jugadoresEnJuego >= 2) {
+
+            System.out.println("El juego continúa con " + jugadoresConectados + " jugadores");
         }
     }
     private int calcularTropasIniciales(int cantidadJugadores) {
@@ -794,93 +798,55 @@ public class GameSession {
             default -> 20;
         };
     }
-    private void iniciarTurno(JugadorJuego jugador) {
-        // 1. Calcular refuerzos (como ya lo tienes)
-        int territorios = (int) territorioJugador.entrySet().stream()
-                .filter(e -> e.getValue().equals(jugador.getToken()))
-                .count();
-        int refuerzos = Math.max(3, territorios / 3);
-        refuerzos += calcularBonusContinentes(jugador);
-        jugador.setTropasTurno(jugador.getTropasTurno() + refuerzos);
-
-        Map<String, Object> turnoInfo = new HashMap<>();
-        turnoInfo.put("evento", "TURNO_INICIADO");
-        turnoInfo.put("jugador", jugador.getNombre());
-        turnoInfo.put("refuerzos", refuerzos);
-        turnoInfo.put("tropasDisponibles", jugador.getTropasTurno());
-        turnoInfo.put("faseActual", currentPhase.toString());
-
-
-        List<Map<String, Object>> territoriosInfo = territorioJugador.entrySet().stream()
-                .filter(e -> e.getValue().equals(jugador.getToken()))
-                .map(e -> {
-                    Map<String, Object> info = new HashMap<>();
-                    info.put("nombre", e.getKey());
-                    info.put("tropas", territorioTropas.get(e.getKey()));
-                    info.put("fronteras", fronterasCache.getOrDefault(e.getKey(), Collections.emptyList()));
-                    return info;
-                })
-                .collect(Collectors.toList());
-        turnoInfo.put("territorios", territoriosInfo);
-
-        // 4. Enviar notificación solo al jugador actual
-        sendToPlayer(jugador.getToken(), toJson(turnoInfo));
-
-        // 5. Notificar a los otros jugadores (opcional)
-        Map<String, Object> notificacionOtros = new HashMap<>();
-        notificacionOtros.put("evento", "TURNO_DE_OTRO");
-        notificacionOtros.put("jugadorActual", jugador.getNombre());
-        notificacionOtros.put("faseActual", currentPhase.toString());
-
-        // Enviar a todos excepto al jugador actual
-        players.values().stream()
-                .filter(p -> !p.getPlayerId().equals(jugador.getToken()))
-                .forEach(p -> p.send(toJson(notificacionOtros)));
-    }
 
     private int calcularBonusContinentes(JugadorJuego jugador) {
         int bonusTotal = 0;
         List<Continent> todosContinentes = continentRepository.findAll();
 
+
+        if (jugador.getContinentesControlados() == null) {
+            jugador.setContinentesControlados(new HashSet<>());
+        }
+
         for (Continent continente : todosContinentes) {
             List<Pais> paises = continente.getPaisos();
-            int i = 0;
-            boolean controlaAhora = true;
+            boolean controlaCompleto = true;
 
-            // Usamos while sin break
-            while (i < paises.size() && controlaAhora) {
-                Pais pais = paises.get(i);
+
+            for (Pais pais : paises) {
                 if (!jugador.getPaisesControlados().containsKey(pais.getNom())) {
-                    controlaAhora = false; // marcamos que no controla el continente
+                    controlaCompleto = false;
+                    break;
                 }
-                i++;
             }
 
-            if (controlaAhora) {
-                boolean yaLoControlaba = jugador.getContinentesControlados().contains(continente.getId());
+            if (controlaCompleto) {
 
-                if (!yaLoControlaba) {
+                if (!jugador.getContinentesControlados().contains(continente.getId())) {
                     bonusTotal += continente.getReforç();
                     jugador.getContinentesControlados().add(continente.getId());
-                }
-            } else {
-                if(jugador.getContinentesControlados().contains(continente.getId())) {
-                    jugador.getContinentesControlados().remove(continente.getId());
+                    System.out.println("Jugador " + jugador.getNombre() + " GANA control del continente: " + continente.getNom() + " (Bonus: " + continente.getReforç() + ")");
                 }
 
+            } else {
+
+                if (jugador.getContinentesControlados().contains(continente.getId())) {
+                    jugador.getContinentesControlados().remove(continente.getId());
+                    System.out.println("Jugador " + jugador.getNombre() + " ha PERDIDO el control del continente: " + continente.getNom());
+                }
             }
         }
 
+        System.out.println("Bonus total por continentes para " + jugador.getNombre() + ": " + bonusTotal);
         return bonusTotal;
     }
-
 
     private void siguienteTurno() {
 
         if (currentTurnTimer != null && !currentTurnTimer.isDone()) {
             currentTurnTimer.cancel(false);
         }
-        // Rotar jugadores
+
         PartidaJuego p = getPartidaJuego();
 
         if(p.getFase().equals(Estat.REFORC_TROPES)){
@@ -894,8 +860,11 @@ public class GameSession {
                 PartidaRS rs = new PartidaRS();
                     jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularTropasInicioTurno(jugadorActual));
                     jugadorActual.setTropasTurno(calcularTropasInicioTurno(jugadorActual));
-                    jugadorActual.setTotalTropas(jugadorActual.getTotalTropas()+calcularBonusContinentes(jugadorActual));
-                    jugadorActual.setTropasTurno(jugadorActual.getTropasTurno()+calcularBonusContinentes(jugadorActual));
+                    int totalTropas=jugadorActual.getTotalTropas();
+                    int totalTropasTurno=jugadorActual.getTropasTurno();
+                    int bonus = calcularBonusContinentes(jugadorActual);
+                    jugadorActual.setTotalTropas(totalTropas+bonus);
+                    jugadorActual.setTropasTurno(totalTropasTurno+bonus);
                     jugadoresEnPartida.set(getCurrentPlayerIndex(), jugadorActual);
                     partidaActual.setJugadores(jugadoresEnPartida);
                     rs.setPartida(partidaActual);
@@ -1007,6 +976,11 @@ public class GameSession {
                 rs.setCode(200);
                 broadcast(toJson(rs));
                 gameRunning=false;
+                for(JugadorJuego jugador : jugadoresEnPartida) {
+                    for(String pnom:jugador.getPaisesControlados().keySet()) {
+                        QuitarOkupa(jugador,pnom);
+                    }
+                }
                 jugadoresEnPartida.clear();
                 return true;
             }
@@ -1014,16 +988,14 @@ public class GameSession {
         return false;
     }
 
-    public void perdedor(){
-        for(JugadorJuego j : jugadoresEnPartida) {
-            if(j.getPaisesControlados().size()== 0){
-                HasPerdidoRS rs = new HasPerdidoRS();
-            rs.setResponse("hasPerdidoRS");
-            rs.setCode(200);
-            sendToPlayer(j.getToken(),toJson(rs));
-            jugadoresEnPartida.remove(j);
-            }
-        }
+    public void perdedor(JugadorJuego j){
+        HasPerdidoRS rs = new HasPerdidoRS();
+        rs.setResponse("hasPerdidoRS");
+        rs.setCode(200);
+        sendToPlayer(j.getToken(),toJson(rs));
+        jugadoresEnPartida.remove(j);
+
+
     }
 
     private void startTurnTimer() {
@@ -1070,5 +1042,37 @@ public class GameSession {
         o.setPais(p);
         o.setJugador(ju);
         okupaRepository.delete(o);
+    }
+
+    public void sefue(String token) {
+
+        JugadorJuego jugadorQueSeFue = null;
+        for (JugadorJuego j : jugadoresEnPartida) {
+            if (j.getToken().equals(token)) {
+                jugadorQueSeFue = j;
+                break;
+            }
+        }
+
+        if (jugadorQueSeFue == null) return;
+
+        jugadoresEnPartida.remove(jugadorQueSeFue);
+
+
+        for (JugadorJuego jugador : jugadoresEnPartida) {
+            GanadorRS rsGanador = new GanadorRS();
+            rsGanador.setResponse("ganadorRS");
+            rsGanador.setToken(jugador.getToken());
+            rsGanador.setId(jugador.getId());
+            rsGanador.setNombre(jugador.getNombre());
+            rsGanador.setCode(200);
+            sendToPlayer(jugador.getToken(), toJson(rsGanador));
+        }
+
+        gameRunning = false;
+
+        players.clear();
+        sessionToPlayer.clear();
+        connectionToToken.clear();
     }
 }

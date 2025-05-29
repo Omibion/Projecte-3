@@ -23,7 +23,7 @@ public class GameManager {
     private final FronteraJPARepository fronteraRepository;
     private final OkupaJPARepository okupaRepository;
 
-    // Constructor con inyección de dependencias
+
     @Autowired
     public GameManager(ObjectMapper objectMapper,
                        PartidaJpaRepository partidaRepository, JugadorpJpaRepository jugadorRepository,
@@ -40,7 +40,6 @@ public class GameManager {
         instance = this;
     }
 
-    // Singleton pattern
     public static GameManager getInstance() {
         if (instance == null) {
             throw new IllegalStateException("GameManager no ha sido inicializado. Asegúrate de que Spring lo haya creado.");
@@ -93,18 +92,16 @@ public class GameManager {
         String gameId = sessionToGameMap.get(session);
         if (gameId != null) {
             getGame(gameId).ifPresent(game -> {
-                // Verifica que la partida esté en ejecución
                 if (!game.isGameRunning()) {
                     System.err.println("Partida no iniciada, ignorando mensaje");
                     return;
                 }
 
-                // Usar offer() con timeout para evitar bloqueos indefinidos
+
                 boolean success = game.getInputQueue().offer(payload);
 
                 if (!success) {
                     System.err.println("Cola llena, mensaje descartado para gameId: " + gameId);
-                    // Opcional: Notificar al jugador que el servidor está ocupado
                     session.send("{\"error\": \"Servidor ocupado, reintenta\"}");
                 } else {
                     System.out.println("[DEBUG] Mensaje encolado para gameId: " + gameId + payload);
@@ -142,7 +139,7 @@ public class GameManager {
         GameSession game = getGame(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("No se encontró la sala con ID: " + gameId));
 
-        // Usamos isGameRunning() para verificar el estado
+
         if (game.isGameRunning()) {
             System.out.println("La partida ya está en curso: " + gameId);
             return;
@@ -175,7 +172,6 @@ public class GameManager {
      * Detiene todas las salas (para el cierre del servidor)
      */
     public void shutdown() {
-      //  activeGames.values().forEach(GameSession::stopGame);
         activeGames.clear();
         sessionToGameMap.clear();
     }
@@ -193,4 +189,5 @@ public class GameManager {
     public boolean gameExists(String gameId) {
         return activeGames.containsKey(gameId);
     }
+
 }

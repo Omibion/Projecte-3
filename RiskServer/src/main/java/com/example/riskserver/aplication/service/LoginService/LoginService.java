@@ -11,15 +11,15 @@ public class LoginService implements LoginUseCase {
 
     private final UserJpaRepository userRepository;
 
-    // Inyección de dependencias mediante constructor
+
     public LoginService(UserJpaRepository userRepository) {
         this.userRepository = userRepository;
     }
 
     @Override
     public LoginRS login(String username, String password) {
-        // Ahora puedes usar el repositorio
-        User user = userRepository.findByNom(username); // Asegúrate que este método exista en tu repositorio
+
+        User user = userRepository.findByNom(username);
         if (user == null) {
             LoginRS loginRS = new LoginRS();
             loginRS.setResponse("loginRS");

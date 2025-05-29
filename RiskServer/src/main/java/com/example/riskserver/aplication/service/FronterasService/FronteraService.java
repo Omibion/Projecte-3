@@ -33,7 +33,7 @@ public class FronteraService {
             tempCache.computeIfAbsent(p2, k -> new ArrayList<>()).add(p1);
         }
 
-        // Lo hacemos inmutable
+
         Map<String, List<String>> immutableCache = new HashMap<>();
         for (Map.Entry<String, List<String>> entry : tempCache.entrySet()) {
             immutableCache.put(entry.getKey(), List.copyOf(entry.getValue()));
@@ -42,15 +42,4 @@ public class FronteraService {
         this.fronterasCache = Collections.unmodifiableMap(immutableCache);
     }
 
-    public List<String> getFronterasDe(String pais) {
-        return fronterasCache.getOrDefault(pais, List.of());
-    }
-
-    public boolean sonFronterizos(String paisA, String paisB) {
-        return fronterasCache.getOrDefault(paisA, List.of()).contains(paisB);
-    }
-
-    public Set<String> getTodosLosPaises() {
-        return fronterasCache.keySet();
-    }
 }
